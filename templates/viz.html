@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/>
+<title>CNN · Prediction</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&family=Orbitron:wght@700;900&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%;background:#000;overflow:hidden;}
+  canvas{display:block;position:fixed;inset:0;}
+  #hud{position:fixed;inset:0;pointer-events:none;font-family:'JetBrains Mono',monospace;}
+
+  #title{position:absolute;top:24px;left:28px;
+    font-family:'Orbitron',sans-serif;font-size:.85rem;font-weight:700;
+    letter-spacing:.2em;color:#6af;text-shadow:0 0 18px #08f9;}
+
+  #step-counter{position:absolute;top:26px;left:50%;transform:translateX(-50%);
+    font-size:.7rem;color:#2a6a9a;letter-spacing:.12em;}
+
+  #layer-lbl{position:absolute;bottom:68px;left:50%;transform:translateX(-50%);
+    text-align:center;opacity:0;transition:opacity .4s;
+    font-family:'Orbitron',sans-serif;font-size:clamp(.8rem,2.2vw,1.15rem);
+    font-weight:700;letter-spacing:.1em;color:#7df;text-shadow:0 0 14px #0af;}
+  #layer-sub{font-size:.65rem;color:#4af8;margin-top:5px;letter-spacing:.1em;
+    font-family:'JetBrains Mono',monospace;}
+
+  #dots{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);display:flex;gap:8px;}
+  .dot{width:9px;height:9px;border-radius:50%;background:#0a1828;border:1.5px solid #1a3a5a;transition:all .4s;}
+  .dot.active{background:#00ccff;box-shadow:0 0 12px #0cf,0 0 24px #0cf5;border-color:#0ff;}
+  .dot.done{background:#004d70;border-color:#007099;}
+
+  /* ── HUD pred label — fades in at exact moment voxel finishes scaling ── */
+  #pred-hud{
+    position:absolute;bottom:28px;left:28px;
+    opacity:0;transition:opacity .8s;
+  }
+  #pred-hud.show{opacity:1;}
+  #pred-hud-lbl{font-size:.58rem;color:#4af8;letter-spacing:.18em;text-transform:uppercase;}
+  #pred-char{
+    font-family:'Orbitron',sans-serif;font-size:2.2rem;font-weight:900;
+    color:#0ff;text-shadow:0 0 22px #0ff,0 0 50px #0ff8;line-height:1.1;
+  }
+
+  #btn-replay{
+    position:absolute;bottom:22px;right:28px;pointer-events:all;
+    padding:9px 22px;border-radius:5px;border:1px solid rgba(0,170,255,.4);
+    background:rgba(0,8,28,.9);color:#88ccff;
+    font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.07em;
+    cursor:pointer;backdrop-filter:blur(8px);
+    opacity:0;pointer-events:none;transition:opacity .6s;
+  }
+  #btn-replay.show{opacity:1;pointer-events:all;}
+  #btn-replay:hover{background:rgba(0,80,180,.3);color:#fff;box-shadow:0 0 14px #0af5;}
+
+  #loading{position:fixed;inset:0;background:#000209;z-index:100;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+    transition:opacity .8s;}
+  #loading.hide{opacity:0;pointer-events:none;}
+  #loading-ring{width:48px;height:48px;border:3px solid #0a1828;
+    border-top-color:#0af;border-radius:50%;animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loading-txt{font-family:'JetBrains Mono',monospace;font-size:.75rem;color:#4af8;letter-spacing:.1em;}
+</style>
+</head>
+<body>
+
+<div id="loading"><div id="loading-ring"></div><div id="loading-txt">Building…</div></div>
+
+<div id="hud">
+  <div id="title">CNN · Depth Stack</div>
+  <div id="step-counter"></div>
+  <div id="layer-lbl"><div id="lname">–</div><div id="layer-sub">–</div></div>
+  <div id="dots"></div>
+  <!-- Prediction label: shown only when 3D voxel finishes scaling -->
+  <div id="pred-hud">
+    <div id="pred-hud-lbl">Prediction</div>
+    <div id="pred-char">?</div>
+  </div>
+  <button id="btn-replay">↺ Replay</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+
+const API = 'http://localhost:5000';
+
+/* ══════════════════════════════════════════════════════════
+   5×7 PIXEL FONT  (35 bits per glyph, row-major, top→bottom)
+══════════════════════════════════════════════════════════ */
+const FONT={
+  '0':[0,1,1,1,0,1,0,0,0,1,1,0,0,1,1,1,0,1,0,1,1,1,0,0,1,1,0,0,0,1,0,1,1,1,0],
+  '1':[0,0,1,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,1,1,0],
+  '2':[0,1,1,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,1,1,1,1],
+  '3':[1,1,1,1,0,0,0,0,0,1,0,0,0,0,1,0,1,1,1,0,0,0,0,0,1,0,0,0,0,1,1,1,1,1,0],
+  '4':[0,0,0,1,0,0,0,1,1,0,0,1,0,1,0,1,0,0,1,0,1,1,1,1,1,0,0,0,1,0,0,0,0,1,0],
+  '5':[1,1,1,1,1,1,0,0,0,0,1,1,1,1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
+  '6':[0,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
+  '7':[1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0],
+  '8':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
+  '9':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,1,0,0,0,0,1,0,0,0,0,1,0,1,1,1,0],
+  'A':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1],
+  'B':[1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0],
+  'C':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,1,1,1,0],
+  'D':[1,1,1,0,0,1,0,0,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,1,0,1,1,1,0,0],
+  'E':[1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,1],
+  'F':[1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0],
+  'G':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,0,1,1,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,1],
+  'H':[1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1],
+  'I':[0,1,1,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,1,1,0],
+  'J':[0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,1,0,0,1,0,1,0,0,1,0,0,1,1,0,0],
+  'K':[1,0,0,0,1,1,0,0,1,0,1,0,1,0,0,1,1,0,0,0,1,0,1,0,0,1,0,0,1,0,1,0,0,0,1],
+  'L':[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,1],
+  'M':[1,0,0,0,1,1,1,0,1,1,1,0,1,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1],
+  'N':[1,0,0,0,1,1,1,0,0,1,1,0,1,0,1,1,0,0,1,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1],
+  'O':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
+  'P':[1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0],
+  'Q':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,1,0,1,1,0,0,1,0,0,1,1,0,1],
+  'R':[1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,1,0,0,1,0,0,1,0,1,0,0,0,1],
+  'S':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,0,1,1,1,0,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
+  'T':[1,1,1,1,1,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0],
+  'U':[1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
+  'V':[1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,1,0,1,0,0,0,1,0,0],
+  'W':[1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,1,0,1,1,0,1,0,1,1,1,0,1,1,1,0,0,0,1],
+  'X':[1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1],
+  'Y':[1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0],
+  'Z':[1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,1,1,1,1],
+};
+// Fill lowercase → uppercase fallback
+'abcdefghijklmnopqrstuvwxyz'.split('').forEach(c=>{if(!FONT[c]&&FONT[c.toUpperCase()])FONT[c]=FONT[c.toUpperCase()];});
+
+/* ══════════════════════════════════════════════════════════
+   LAYERS
+══════════════════════════════════════════════════════════ */
+const LAYERS=[
+  {label:'Input',        sub:'1 × 28 × 28',imgUrl:()=>`${API}/input/input.png?t=${Date.now()}`,sw:28,sh:28,col:[0.0,0.72,1.0]},
+  {label:'Conv 1',       sub:'16 × 28 × 28',imgUrl:()=>`${API}/outputs/1_conv1.png?t=${Date.now()}`,sw:28,sh:28,col:[0.0,0.55,1.0],gCols:8,gRows:2,show:16},
+  {label:'ConvStride 1', sub:'32 × 14 × 14',imgUrl:()=>`${API}/outputs/2_convStride1.png?t=${Date.now()}`,sw:14,sh:14,col:[0.12,0.38,1.0],gCols:8,gRows:4,show:16},
+  {label:'Conv 2',       sub:'64 × 14 × 14',imgUrl:()=>`${API}/outputs/3_conv2.png?t=${Date.now()}`,sw:14,sh:14,col:[0.36,0.18,1.0],gCols:8,gRows:8,show:16},
+  {label:'ConvStride 2', sub:'128 × 7 × 7',imgUrl:()=>`${API}/outputs/4_convStride2.png?t=${Date.now()}`,sw:7,sh:7,col:[0.62,0.04,1.0],gCols:8,gRows:16,show:16},
+  {label:'FC 1',         sub:'512 neurons',imgUrl:()=>`${API}/outputs/5_fc1.png?t=${Date.now()}`,col:[0.88,0.0,0.72],isFC:true,fcN:48},
+  {label:'FC 2',         sub:'256 neurons',imgUrl:()=>`${API}/outputs/6_fc2.png?t=${Date.now()}`,col:[1.0,0.0,0.38],isFC:true,fcN:32},
+  {label:'Output',       sub:'47 class scores',imgUrl:()=>`${API}/outputs/7_fc3.png?t=${Date.now()}`,col:[1.0,0.28,0.0],isFC:true,fcN:47},
+];
+
+/* ══════════════════════════════════════════════════════════
+   LAYOUT
+══════════════════════════════════════════════════════════ */
+const SCALE=5.5/28,ACTIVE_Z=0,SPAWN_Z=15;
+const PUSH_STEP=12,FC_PUSH_STEP=4.8;  // FC cluster 60% tighter
+const LERP_SPEED=6.0,PLANE_GAP=0.22;
+// Voxel lives exactly where the Output layer (step 7) sits when active
+const VOXEL_Z=ACTIVE_Z;   // z = 0
+
+function blockW(L){return L.sw?L.sw*SCALE:0.55;}
+function blockH(L){return L.sh?L.sh*SCALE:6.0;}
+
+/* ══════════════════════════════════════════════════════════
+   RENDERER
+══════════════════════════════════════════════════════════ */
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.setClearColor(0x00020c,1);
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+scene.fog=new THREE.FogExp2(0x00020c,0.012);
+
+const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.1,400);
+
+/* Lights */
+scene.add(new THREE.AmbientLight(0x050c1a,5));
+const kL=new THREE.DirectionalLight(0xaad4ff,3.5);kL.position.set(8,14,10);scene.add(kL);
+const sL=new THREE.DirectionalLight(0x0044cc,2.5);sL.position.set(30,5,-5);scene.add(sL);
+const bL=new THREE.DirectionalLight(0x440088,1.5);bL.position.set(-10,0,-30);scene.add(bL);
+// Point light at voxel position — pumped up at hero reveal
+const voxelLight=new THREE.PointLight(0x00ffff,0,40);
+voxelLight.position.set(0,0,VOXEL_Z+4);scene.add(voxelLight);
+
+/* Tunnel rings (depth cue) */
+for(let z=0;z>=-150;z-=8){
+  const r=12+Math.abs(z)*.05,seg=64,pts=[];
+  for(let j=0;j<=seg;j++){const a=(j/seg)*Math.PI*2;pts.push(new THREE.Vector3(Math.cos(a)*r,Math.sin(a)*r,z));}
+  const alpha=Math.max(0.015,0.1-Math.abs(z)*.001);
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({color:0x0a2040,transparent:true,opacity:alpha})));
+}
+
+/* Stars */
+{
+  const N=2000,geo=new THREE.BufferGeometry(),p=new Float32Array(N*3);
+  for(let i=0;i<N;i++){p[i*3]=(Math.random()-.5)*200;p[i*3+1]=(Math.random()-.5)*100;p[i*3+2]=(Math.random()-.5)*200-50;}
+  geo.setAttribute('position',new THREE.BufferAttribute(p,3));
+  scene.add(new THREE.Points(geo,new THREE.PointsMaterial({color:0x0c1e30,size:.12,transparent:true,opacity:.55})));
+}
+
+/* ══════════════════════════════════════════════════════════
+   EASING
+══════════════════════════════════════════════════════════ */
+function easeInOutCubic(x){return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;}
+function easeExpoOut(x){return x===1?1:1-Math.pow(2,-10*x);}
+
+/* ══════════════════════════════════════════════════════════
+   CAMERA
+══════════════════════════════════════════════════════════ */
+// Close-up per layer [px,py,pz, lx,ly,lz]
+const CAM_CLOSEUP=[
+  [15,8,11,   0, 0.5,-1],  // 0 Input
+  [13,7, 9,  -1, 0.4,-1],  // 1 Conv1
+  [11,6, 8,   1, 0.4,-1],  // 2 CStride1
+  [ 9,5, 7,  -1, 0.3,-1],  // 3 Conv2
+  [ 8,4, 6,   0, 0.3,-1],  // 4 CStride2
+  [ 4,1.5,5, -0.5,0.1,0],  // 5 FC1  — deep dive
+  [ 3,1.5,4,  0.5,0.1,0],  // 6 FC2  — snap right
+  [ 2,1,  3,  0,  0,  0],  // 7 Output — fly through
+];
+const OV_POS =new THREE.Vector3(20,10,25);
+const OV_LOOK=new THREE.Vector3(0,0,-20);
+const PB_POS =new THREE.Vector3(18,9,20);
+const PB_LOOK=new THREE.Vector3(0,0,-10);
+const HERO_POS =new THREE.Vector3(6,2.5,14);
+const HERO_LOOK=new THREE.Vector3(-0.5,0,0);
+
+const camCur ={pos:OV_POS.clone(),look:OV_LOOK.clone()};
+const camFrom={pos:OV_POS.clone(),look:OV_LOOK.clone()};
+const camTgt ={pos:OV_POS.clone(),look:OV_LOOK.clone()};
+let camT=1,camSpeed=1.6,camEase=easeInOutCubic;
+
+function moveCam(tp,tl,spd,fn){
+  camFrom.pos.copy(camCur.pos);camFrom.look.copy(camCur.look);
+  camTgt.pos.copy(tp);camTgt.look.copy(tl);
+  camT=0;camSpeed=spd||1.6;camEase=fn||easeInOutCubic;
+}
+function tickCamera(dt){
+  if(camT<1){camT=Math.min(camT+dt*camSpeed,1);const e=camEase(camT);
+    camCur.pos.lerpVectors(camFrom.pos,camTgt.pos,e);
+    camCur.look.lerpVectors(camFrom.look,camTgt.look,e);}
+  camera.position.copy(camCur.pos);camera.lookAt(camCur.look);
+}
+camera.position.copy(OV_POS);camera.lookAt(OV_LOOK);
+
+/* ══════════════════════════════════════════════════════════
+   TEXTURE LOADER
+══════════════════════════════════════════════════════════ */
+const tLoader=new THREE.TextureLoader();
+function loadTex(url){
+  return new Promise(res=>{
+    const tm=setTimeout(()=>res(null),5000);
+    tLoader.load(url,tx=>{clearTimeout(tm);tx.minFilter=tx.magFilter=THREE.LinearFilter;res(tx);},
+      undefined,()=>{clearTimeout(tm);res(null);});
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   3D VOXEL CHARACTER
+   Lives at VOXEL_Z = 0 — same position as the Output layer.
+   Starts invisible; grows from 0.8→1.2→1.0 scale on reveal.
+══════════════════════════════════════════════════════════ */
+let voxelGroup=null;
+let voxelCurGlow=0,voxelTargetGlow=0;
+// Scale animation: 0=not started, >0 = time elapsed since start
+let voxelScaleStart=-1;
+const SCALE_DURATION=0.9;  // seconds for 0.8→1.2→1.0 arc
+let hudShown=false;        // tracks if we've already shown the HUD
+let predChar='?';
+
+function buildVoxelChar(ch){
+  if(voxelGroup){scene.remove(voxelGroup);voxelGroup=null;}
+
+  const bitmap=FONT[ch]||FONT[ch.toUpperCase()]||FONT['?']||FONT['0'];
+  const ROWS=7,COLS=5,VS=0.55,GAP=0.07,STEP=VS+GAP;
+  const offX=-(COLS-1)*STEP/2, offY=(ROWS-1)*STEP/2;
+  const col=new THREE.Color(0.0,0.9,1.0);
+
+  voxelGroup=new THREE.Group();
+  voxelGroup.position.set(0,0,VOXEL_Z);
+  voxelGroup.scale.set(0.8,0.8,0.8);   // start at 0.8x, will animate up
+
+  const baseGeo=new THREE.BoxGeometry(VS,VS,VS*0.45);
+
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      if(!bitmap[r*COLS+c]) continue;
+      const mat=new THREE.MeshStandardMaterial({
+        color:col,emissive:col,emissiveIntensity:0,
+        transparent:true,opacity:0,metalness:.15,roughness:.35,
+      });
+      const mesh=new THREE.Mesh(baseGeo,mat);
+      mesh.position.set(offX+c*STEP,offY-r*STEP,0);
+
+      const edgeMat=new THREE.LineBasicMaterial({color:new THREE.Color(0.5,1.0,1.0),transparent:true,opacity:0});
+      const edge=new THREE.LineSegments(new THREE.EdgesGeometry(baseGeo),edgeMat);
+      edge.position.copy(mesh.position);
+
+      voxelGroup.add(mesh);
+      voxelGroup.add(edge);
+    }
+  }
+  scene.add(voxelGroup);
+}
+
+function tickVoxel(clockT,dt){
+  if(!voxelGroup) return;
+
+  // Smooth glow
+  voxelCurGlow+=(voxelTargetGlow-voxelCurGlow)*Math.min(dt*2.2,1);
+
+  // Scale animation: 0.8 → 1.2 → 1.0 over SCALE_DURATION seconds
+  let sc=0.8;
+  if(voxelScaleStart>=0){
+    const elapsed=clockT-voxelScaleStart;
+    const prog=Math.min(elapsed/SCALE_DURATION,1);
+    // 0→0.6: ease up from 0.8 to 1.2  |  0.6→1: ease back to 1.0
+    if(prog<0.6){
+      const t2=prog/0.6;
+      sc=0.8+(1.2-0.8)*easeExpoOut(t2);
+    } else {
+      const t2=(prog-0.6)/0.4;
+      sc=1.2+(1.0-1.2)*easeInOutCubic(t2);
+    }
+    voxelGroup.scale.set(sc,sc,sc);
+
+    // Once scale settles, show the HUD pred label (synced)
+    if(prog>=1 && !hudShown){
+      hudShown=true;
+      document.getElementById('pred-char').textContent=predChar;
+      document.getElementById('pred-hud').classList.add('show');
+    }
+  }
+
+  // Pulse after fully revealed
+  const pulse=voxelTargetGlow>0.9?(0.07+0.14*Math.sin(clockT*3.5)):0;
+  const glow=voxelCurGlow+pulse;
+
+  voxelGroup.children.forEach(ch=>{
+    if(!ch.material) return;
+    if(ch.material.isLineBasicMaterial){
+      ch.material.opacity=glow*0.75;
+    } else {
+      ch.material.opacity=glow*0.97;
+      ch.material.emissiveIntensity=glow*3.2+pulse*5;
+    }
+  });
+
+  voxelLight.intensity=voxelCurGlow*16;
+}
+
+/* ══════════════════════════════════════════════════════════
+   LAYER STATE
+══════════════════════════════════════════════════════════ */
+const groups=[],layerZ=[],targetZ=[],layerOp=[],targetOp=[];
+let curStep=-1;
+let heroMode=false;
+
+function depthOpacity(stepsBack){
+  if(stepsBack===0) return 1.0;
+  return Math.max(0.06,0.38*Math.pow(0.52,stepsBack-1));
+}
+
+/* ══════════════════════════════════════════════════════════
+   BUILD LAYER GEOMETRY
+══════════════════════════════════════════════════════════ */
+async function buildLayer(i,tex){
+  const L=LAYERS[i],col=new THREE.Color(...L.col);
+  const grp=new THREE.Group();
+  grp.position.set(0,0,SPAWN_Z+30);grp.visible=false;
+  layerZ[i]=SPAWN_Z+30;targetZ[i]=SPAWN_Z+30;
+  layerOp[i]=0;targetOp[i]=0;
+
+  if(!L.isFC){
+    const bW=blockW(L),bH=blockH(L),n=L.show||1,total=(n-1)*PLANE_GAP;
+    grp.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(bW,bH,total+.1)),
+      new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0})));
+    for(let c2=0;c2<n;c2++){
+      const z=c2*PLANE_GAP-total/2,geo=new THREE.PlaneGeometry(bW,bH);
+      if(tex&&L.gCols){
+        const uv=geo.attributes.uv,ci=c2%L.gCols,ri=Math.floor(c2/L.gCols);
+        const uW=1/L.gCols,uH=1/(L.gRows||1),u0=ci*uW+uW*.015,u1=u0+uW*.97;
+        const v0=1-ri*uH-uH*.015,v1=v0-uH*.97;
+        uv.setXY(0,u0,v0);uv.setXY(1,u1,v0);uv.setXY(2,u0,v1);uv.setXY(3,u1,v1);uv.needsUpdate=true;
+      }
+      const mat=new THREE.MeshStandardMaterial({map:tex||null,color:tex?0xffffff:col,
+        transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,emissive:col,emissiveIntensity:0});
+      const mesh=new THREE.Mesh(geo,mat);mesh.position.z=z;
+      const edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo),
+        new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0}));
+      edge.position.z=z;
+      grp.add(mesh);grp.add(edge);
+    }
+  } else {
+    // FC pillars: doubled width+depth so they look massive up close
+    const n=L.fcN,H=blockH(L),nH=(H/n)*.82;
+    for(let c2=0;c2<n;c2++){
+      const y=(c2/(n-1||1))*H-H/2;
+      const geo=new THREE.BoxGeometry(1.0,nH,0.55);  // was .48 × .20 → now 1.0 × 0.55
+      if(tex){const uv=geo.attributes.uv,u0=c2/n,u1=(c2+1)/n;
+        for(let v=0;v<uv.count;v++)uv.setX(v,v%2===0?u0:u1);uv.needsUpdate=true;}
+      const mat=new THREE.MeshStandardMaterial({color:tex?0xffffff:col,map:tex||null,
+        transparent:true,opacity:0,emissive:col,emissiveIntensity:2.0,  // bright from the start
+        metalness:.3,roughness:.3});
+      grp.add(new THREE.Mesh(geo,mat));
+    }
+  }
+  scene.add(grp);groups.push(grp);
+}
+
+function applyTexture(i,tex){
+  const L=LAYERS[i],grp=groups[i];if(!grp||!tex)return;
+  let pi=0;
+  grp.children.forEach(ch=>{
+    if(ch.isLineSegments||!ch.material)return;
+    if(L.isFC){const uv=ch.geometry.attributes.uv;
+      if(uv){const u0=pi/L.fcN,u1=(pi+1)/L.fcN;
+        for(let v=0;v<uv.count;v++)uv.setX(v,v%2===0?u0:u1);uv.needsUpdate=true;}
+      ch.material.map=tex;ch.material.color.set(0xffffff);ch.material.needsUpdate=true;pi++;
+    } else if(L.gCols&&pi<(L.show||1)){
+      const uv=ch.geometry.attributes.uv;
+      if(uv){const ci=pi%L.gCols,ri=Math.floor(pi/L.gCols),uW=1/L.gCols,uH=1/(L.gRows||1),
+        u0=ci*uW+uW*.015,u1=u0+uW*.97,v0=1-ri*uH-uH*.015,v1=v0-uH*.97;
+        uv.setXY(0,u0,v0);uv.setXY(1,u1,v0);uv.setXY(2,u0,v1);uv.setXY(3,u1,v1);uv.needsUpdate=true;}
+      ch.material.map=tex;ch.material.color.set(0xffffff);ch.material.needsUpdate=true;pi++;
+    }
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   PARTICLES
+══════════════════════════════════════════════════════════ */
+const NF=240,fGeo=new THREE.BufferGeometry(),fPos=new Float32Array(NF*3);
+fGeo.setAttribute('position',new THREE.BufferAttribute(fPos,3));
+scene.add(new THREE.Points(fGeo,
+  new THREE.PointsMaterial({color:0x00eeff,size:.2,transparent:true,opacity:.9,depthWrite:false})));
+const fSt=Array.from({length:NF},()=>({on:false,t:0,spd:.02,fromZ:0,toZ:0,angle:0,radius:0}));
+
+function spawnFlow(fromIdx,toZ,count=32){
+  const fromZ=fromIdx>=0&&groups[fromIdx]?groups[fromIdx].position.z:-PUSH_STEP;
+  let s=0;
+  for(let i=0;i<NF&&s<count;i++){
+    if(!fSt[i].on){
+      fSt[i]={on:true,t:Math.random()*.12,spd:.016+Math.random()*.022,
+        fromZ,toZ:toZ!=null?toZ:ACTIVE_Z,angle:Math.random()*Math.PI*2,radius:Math.random()*2.5};
+      s++;
+    }
+  }
+}
+function tickFlow(){
+  for(let i=0;i<NF;i++){
+    const f=fSt[i];
+    if(!f.on){fPos[i*3]=fPos[i*3+1]=fPos[i*3+2]=1e9;continue;}
+    f.t+=f.spd;if(f.t>=1){f.on=false;continue;}
+    const e=f.t*f.t*(3-2*f.t),r=f.radius*(1-e);
+    fPos[i*3]=Math.cos(f.angle)*r;fPos[i*3+1]=Math.sin(f.angle)*r;
+    fPos[i*3+2]=f.fromZ+(f.toZ-f.fromZ)*e;
+  }
+  fGeo.attributes.position.needsUpdate=true;
+}
+
+/* ══════════════════════════════════════════════════════════
+   HUD
+══════════════════════════════════════════════════════════ */
+function buildDots(){
+  const w=document.getElementById('dots');
+  LAYERS.forEach((_,i)=>{const d=document.createElement('div');d.className='dot';d.id=`d${i}`;w.appendChild(d);});
+}
+function setDot(i){
+  LAYERS.forEach((_,j)=>{document.getElementById(`d${j}`).className='dot'+(j===i?' active':j<i?' done':'');});
+}
+
+/* ══════════════════════════════════════════════════════════
+   SHOW LAYER
+══════════════════════════════════════════════════════════ */
+function showLayer(step){
+  curStep=step;
+  const grp=groups[step];
+  grp.position.z=SPAWN_Z;layerZ[step]=SPAWN_Z;
+  targetZ[step]=ACTIVE_Z;targetOp[step]=1.0;
+  grp.visible=true;
+
+  for(let j=0;j<step;j++){
+    let z=ACTIVE_Z;
+    for(let k=step;k>j;k--){const bFC=(k>=5)&&(k-1>=5);z-=bFC?FC_PUSH_STEP:PUSH_STEP;}
+    targetZ[j]=z;
+    targetOp[j]=depthOpacity(step-j);
+  }
+
+  const kf=CAM_CLOSEUP[step],isFC=!!LAYERS[step].isFC;
+  moveCam(new THREE.Vector3(kf[0],kf[1],kf[2]),new THREE.Vector3(kf[3],kf[4],kf[5]),
+    isFC?2.4:1.5,isFC?easeExpoOut:easeInOutCubic);
+
+  spawnFlow(step-1,ACTIVE_Z,30);
+
+  const L=LAYERS[step];
+  document.getElementById('lname').textContent=L.label;
+  document.getElementById('layer-sub').textContent=L.sub;
+  document.getElementById('layer-lbl').style.opacity='1';
+  document.getElementById('step-counter').textContent=`Step ${step+1} / ${LAYERS.length}`;
+  setDot(step);
+}
+
+/* ══════════════════════════════════════════════════════════
+   HERO REVEAL
+   Timeline (all from when triggerHeroReveal() is called):
+     0ms   – heroMode on; all layers start fading to 5%
+            – camera flies THROUGH Output layer → z=5
+     500ms – Output layer hidden; voxel scale animation begins
+            – camera glides back to hero shot
+            – voxel starts glowing (glow target = 1.0)
+     ~1400ms – scale animation ends → HUD pred-char appears (synced)
+     2500ms – replay button
+══════════════════════════════════════════════════════════ */
+function triggerHeroReveal(){
+  heroMode=true;
+
+  // 0ms: Fast camera fly-through the Output layer, stopping just past it
+  const flyPastPos =new THREE.Vector3(3,1,6);
+  const flyPastLook=new THREE.Vector3(0,0,0);
+  moveCam(flyPastPos,flyPastLook,1.8,easeExpoOut);
+
+  // 500ms: Hide Output layer, start voxel reveal + hero camera settle
+  setTimeout(()=>{
+    // Swap: hide Output layer group, voxel becomes the focal point
+    if(groups[LAYERS.length-1]) groups[LAYERS.length-1].visible=false;
+
+    // Start voxel glow + scale animation
+    voxelTargetGlow=1.0;
+    voxelScaleStart=performance.now()/1000;
+
+    // Burst particles converging on the voxel position
+    spawnFlow(LAYERS.length-2,VOXEL_Z,70);
+
+    // Hero shot: right of centre, angled at voxel
+    moveCam(HERO_POS,HERO_LOOK,1.0,easeExpoOut);
+  },500);
+
+  // 2500ms: Replay button
+  setTimeout(()=>{
+    document.getElementById('btn-replay').classList.add('show');
+  },2500);
+}
+
+/* ══════════════════════════════════════════════════════════
+   SEQUENCE
+══════════════════════════════════════════════════════════ */
+const HOLD_TIME=1100,PULL_TIME=500;
+let seqTimer=0,nextStep=0,seqActive=false,seqPhase='hold';
+
+function startSequence(){seqActive=true;seqTimer=0;nextStep=0;seqPhase='hold';showLayer(0);}
+
+function advanceSeq(dt){
+  if(!seqActive)return;
+  seqTimer+=dt*1000;
+  if(seqPhase==='hold'){
+    if(seqTimer>=HOLD_TIME){
+      seqTimer=0;
+      if(nextStep<LAYERS.length-1){seqPhase='pullback';moveCam(PB_POS,PB_LOOK,2.4);}
+      else{seqActive=false;triggerHeroReveal();}
+    }
+  } else if(seqPhase==='pullback'){
+    if(seqTimer>=PULL_TIME){seqTimer=0;seqPhase='hold';nextStep++;showLayer(nextStep);}
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   RENDER LOOP
+══════════════════════════════════════════════════════════ */
+let lastT=performance.now();
+
+function loop(){
+  requestAnimationFrame(loop);
+  const now=performance.now(),dt=Math.min((now-lastT)/1000,.05);lastT=now;
+  const clockT=now/1000;
+
+  const lf=Math.min(LERP_SPEED*dt,1.0);
+  groups.forEach((grp,i)=>{
+    if(!grp.visible)return;
+    layerZ[i]+=(targetZ[i]-layerZ[i])*lf;grp.position.z=layerZ[i];
+
+    // Hero mode → fade all layers to 5%
+    const tOp=heroMode?Math.min(targetOp[i]*.05,0.05):targetOp[i];
+    layerOp[i]+=(tOp-layerOp[i])*lf;
+    const op=layerOp[i],isActive=i===curStep&&!heroMode,stepsBack=curStep-i;
+    const glowBase=isActive?(0.5+0.4*Math.sin(clockT*4.5)):0;
+    const glow=glowBase*Math.max(0,1-stepsBack*.4);
+    grp.position.y=isActive?Math.sin(clockT*3)*.06:0;
+
+    grp.children.forEach((ch,ci)=>{
+      if(!ch.material)return;
+      const isNew=isActive&&layerZ[i]>ACTIVE_Z-1.0;
+      const sp=isNew?Math.min(Math.max((1-(layerZ[i]-ACTIVE_Z)/(SPAWN_Z-ACTIVE_Z))*1.6-ci*.025,0),1):1;
+      const se=sp*sp*(3-2*sp);
+      const L=LAYERS[i];
+      const baseOp=ch.material.isLineBasicMaterial?.55:(L.isFC?.92:(.5+(ci/Math.max(grp.children.length-1,1))*.38));
+      ch.material.opacity=se*baseOp*op;
+      if(ch.material.emissive){
+        const isFC=LAYERS[i].isFC;
+        const baseEI = isFC ? 2.0 : 0.05;      // FC pillars always glow bright
+        const activeBoost = isActive ? glow : 0;
+        ch.material.emissiveIntensity=activeBoost+baseEI*(isActive?1:Math.max(.15,op));
+      }
+    });
+  });
+
+  advanceSeq(dt);
+  tickFlow();
+  tickVoxel(clockT,dt);
+  tickCamera(dt);
+  renderer.render(scene,camera);
+}
+
+/* ══════════════════════════════════════════════════════════
+   INIT
+══════════════════════════════════════════════════════════ */
+async function init(){
+  buildDots();
+  predChar=new URLSearchParams(location.search).get('pred')||'?';
+  // Build the voxel char at z=0 (Output layer position), invisible initially
+  buildVoxelChar(predChar);
+
+  for(let i=0;i<LAYERS.length;i++) await buildLayer(i,null);
+
+  document.getElementById('loading').classList.add('hide');
+  setTimeout(()=>document.getElementById('loading').style.display='none',700);
+  loop();
+  setTimeout(startSequence,500);
+
+  for(let i=0;i<LAYERS.length;i++)
+    loadTex(LAYERS[i].imgUrl()).then(tex=>{if(tex)applyTexture(i,tex);});
+}
+
+document.getElementById('btn-replay').onclick=()=>location.reload();
+window.addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+init();
+</script>
+</body>
+</html>
