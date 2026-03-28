@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class MLP(nn.Module):
-    def __init__(self, num_classes=47):
+    def __init__(self, num_classes=10):
         super(MLP, self).__init__()
 
         self.flatten = nn.Flatten()

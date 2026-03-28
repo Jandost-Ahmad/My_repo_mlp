@@ -10,19 +10,20 @@ import os
 from torchvision.datasets import MNIST
 from torchvision import transforms
 
-# EMNIST(
-#     root="data2",
-#     split="balanced",
-#     train=True,
-#     download=True
-# )
 
+import numpy as np
+import pathlib
 
-def load_mnist_cnn():
+def load_mnist_cnn(train):
     # load MNIST data from local npz file
     path = pathlib.Path(__file__).parent.absolute() / "data" / "mnist.npz"
-    with np.load(path) as f:
-        images, labels = f["x_train"], f["y_train"]
+
+    if train:
+        with np.load(path) as f:
+            images, labels = f["x_train"], f["y_train"]
+    else:
+        with np.load(path) as f:
+            images, labels = f["x_test"], f["y_test"]
 
     # normalize to 0-1
     images = images.astype("float32") / 255.0
@@ -35,8 +36,7 @@ def load_mnist_cnn():
 
     return images, labels
 
-
-def load_emnist_cnn(train=True):
+def load_emnist_cnn(train):
 # load EMNIST balanced split data from torchvision.datasets
     transform = transforms.Compose([
         transforms.ToTensor(),                                                  # -> [0,1], shape (1,28,28)

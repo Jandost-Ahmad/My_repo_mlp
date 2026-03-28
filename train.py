@@ -14,7 +14,7 @@ from data import get_activation, load_emnist_mapping, save_activations, visualiz
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Hyper-parameters 
-num_epochs = 20
+num_epochs = 30
 #num_epochs = 30
 batch_size = 256
 learning_rate = 0.001

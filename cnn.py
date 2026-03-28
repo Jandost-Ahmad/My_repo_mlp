@@ -20,7 +20,7 @@ def train(model, device, loss_fn, optimizer, num_epochs, batch_size, modelName="
 # Train the model
     
     # get mnist training data
-    images_cnn, labels_cnn = load_mnist_cnn()
+    images_cnn, labels_cnn = load_mnist_cnn(train=True)
     # print(images_cnn.shape)  # (112800, 1, 28, 28)
     # print(labels_cnn.shape)  # (112800,)
 
