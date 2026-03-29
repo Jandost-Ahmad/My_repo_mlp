@@ -331,6 +331,9 @@
   }
 
   const API_BASE = "http://localhost:5000";
+  // ── PASTE YOUR FIREBASE URL HERE (keep the trailing slash) ──────────────────
+  const FIREBASE_URL = "https://console.firebase.google.com/u/0/project/mlp-mm/database/mlp-mm-default-rtdb/data/~2F";
+  // ────────────────────────────────────────────────────────────────────────────
   const canvasEl = document.getElementById("drawCanvas");
   const ctx      = canvasEl.getContext("2d");
 
@@ -472,6 +475,23 @@
         raw_h3:      data.raw_h3 || [],
         ts:          Date.now(),
       }));
+
+      // ── push to Firebase so projector screen reacts instantly ────────────
+      fetch(`${FIREBASE_URL}prediction.json`, {
+        method:  "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prediction:    data.prediction,
+          label_index:   data.label_index,
+          probabilities: data.probabilities || [],
+          raw_pixels:    data.raw_pixels || [],
+          raw_h1:        data.raw_h1 || [],
+          raw_h2:        data.raw_h2 || [],
+          raw_h3:        data.raw_h3 || [],
+          ts:            Date.now(),
+        }),
+      }).catch(()=>{}); // silent fail — localStorage still works as fallback
+      // ─────────────────────────────────────────────────────────────────────
 
       // auto-open 3D viz with prediction char
       setTimeout(() => window.open(`/viz?pred=${encodeURIComponent(data.prediction)}`, 'mlp_viz'), 500);
