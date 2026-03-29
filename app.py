@@ -71,6 +71,7 @@ def _build_emnist_mapping():  #Die Funktion habe total verändert nach Herr Scha
 
 mapping = _build_emnist_mapping()
 activations = {}
+last_result  = {}          # ← stores the most recent prediction for the projector
 
 # register forward hooks once
 """
@@ -165,9 +166,6 @@ def predict():
 
         char = mapping.get(pred, "?")
 
-        # compute per-class probabilities
-        probs = torch.nn.functional.softmax(output, dim=1).squeeze().tolist()
-
         # save activation visualisations
         """
         label_map = [
@@ -180,26 +178,37 @@ def predict():
             ("7_fc3",         "fc3"),
         ]
         """
+        import time
+
+        probs = torch.nn.functional.softmax(output, dim=1).squeeze().tolist()
+
         label_map = [("1_fc1", "fc1"),("2_fc2", "fc2"),("3_fc3", "fc3"),]  #für MLP
         for file_label, act_key in label_map:
             if act_key in activations:
                 save_activations(activations[act_key], file_label, out_dir=OUTPUT_DIR)
 
-        return jsonify({
-            "prediction": char,
-            "label_index": pred,
+        result = {
+            "prediction":    char,
+            "label_index":   pred,
             "probabilities": probs,
-            "outputs": list_output_images(),
-            "raw_pixels": tensor.squeeze().tolist(),
-            "raw_h1": activations.get("fc1").squeeze().tolist() if "fc1" in activations else [],
-            "raw_h2": activations.get("fc2").squeeze().tolist() if "fc2" in activations else [],
-            "raw_h3": output.squeeze().tolist()
-        })
+            "outputs":       list_output_images(),
+            "ts":            time.time(),   # projector uses this to detect a NEW prediction
+        }
+        last_result.clear()
+        last_result.update(result)
+
+        return jsonify(result)
 
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/latest")
+def latest():
+    """Projector polls this every second to detect a new prediction."""
+    return jsonify(last_result)
 
 
 @app.route("/outputs/<path:filename>")
