@@ -588,33 +588,25 @@ function loadAndApplyData(){
   if(stored) applyData(stored);
 }
 
-window.addEventListener('storage',e=>{
-  if(e.key==='mlp_last_result'){
-    loadAndApplyData();
-    startAnimation(true);   // ← replay animation when same-PC tab updates
-  }
-});
+window.addEventListener('storage',e=>{if(e.key==='mlp_last_result')loadAndApplyData();});
 loadAndApplyData();
 
-// ── FIREBASE LIVE LISTENER — projector reacts the moment tablet predicts ──
-// Replace YOUR-PROJECT with your real Firebase URL (same as in index.html)
+// ── FIREBASE: paste your URL here, projector auto-plays when tablet predicts ─
 const FIREBASE_URL = "https://console.firebase.google.com/u/0/project/mlp-mm/database/mlp-mm-default-rtdb/data/~2F";
-let _lastFbTs = 0;
-(function startFirebase(){
+let _fbTs = 0;
+(function listenFirebase(){
   const es = new EventSource(`${FIREBASE_URL}prediction.json`);
   es.addEventListener('put', e => {
     try {
-      const msg = JSON.parse(e.data);
-      const d   = msg.data;
-      if (!d || !d.ts || d.ts === _lastFbTs) return;
-      _lastFbTs = d.ts;
-      applyData(d);          // update neurons + confidence bars
-      startAnimation(true);  // ← replay the animation!
+      const d = JSON.parse(e.data).data;
+      if (!d || !d.ts || d.ts === _fbTs) return;
+      _fbTs = d.ts;
+      applyData(d);   // applyData already restarts the animation internally
     } catch(_){}
   });
-  es.onerror = () => { es.close(); setTimeout(startFirebase, 3000); };
+  es.onerror = () => { es.close(); setTimeout(listenFirebase, 3000); };
 })();
-// ──────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Camera orbit ───────────────────────────────────────────────────────────
 let theta=0.12,phi=0.06,radius=42,drag=false,autoRot=true,prevM={x:0,y:0};
