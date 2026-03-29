@@ -1,633 +1,640 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/>
-<title>CNN · Prediction</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLP · Digit Visualizer</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&family=Orbitron:wght@700;900&display=swap');
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  html,body{width:100%;height:100%;background:#000;overflow:hidden;}
-  canvas{display:block;position:fixed;inset:0;}
-  #hud{position:fixed;inset:0;pointer-events:none;font-family:'JetBrains Mono',monospace;}
-
-  #title{position:absolute;top:24px;left:28px;
-    font-family:'Orbitron',sans-serif;font-size:.85rem;font-weight:700;
-    letter-spacing:.2em;color:#6af;text-shadow:0 0 18px #08f9;}
-
-  #step-counter{position:absolute;top:26px;left:50%;transform:translateX(-50%);
-    font-size:.7rem;color:#2a6a9a;letter-spacing:.12em;}
-
-  #layer-lbl{position:absolute;bottom:68px;left:50%;transform:translateX(-50%);
-    text-align:center;opacity:0;transition:opacity .4s;
-    font-family:'Orbitron',sans-serif;font-size:clamp(.8rem,2.2vw,1.15rem);
-    font-weight:700;letter-spacing:.1em;color:#7df;text-shadow:0 0 14px #0af;}
-  #layer-sub{font-size:.65rem;color:#4af8;margin-top:5px;letter-spacing:.1em;
-    font-family:'JetBrains Mono',monospace;}
-
-  #dots{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);display:flex;gap:8px;}
-  .dot{width:9px;height:9px;border-radius:50%;background:#0a1828;border:1.5px solid #1a3a5a;transition:all .4s;}
-  .dot.active{background:#00ccff;box-shadow:0 0 12px #0cf,0 0 24px #0cf5;border-color:#0ff;}
-  .dot.done{background:#004d70;border-color:#007099;}
-
-  /* ── HUD pred label — fades in at exact moment voxel finishes scaling ── */
-  #pred-hud{
-    position:absolute;bottom:28px;left:28px;
-    opacity:0;transition:opacity .8s;
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;500;700&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:#060b12;--panel:#080e18;--border:#0f2030;
+    --green:#39ff9a;--cyan:#00e5ff;--yellow:#ffe03d;
+    --dim:#1a3040;--text:#dfe8f5;--label:#9fb6d2;
   }
-  #pred-hud.show{opacity:1;}
-  #pred-hud-lbl{font-size:.58rem;color:#4af8;letter-spacing:.18em;text-transform:uppercase;}
-  #pred-char{
-    font-family:'Orbitron',sans-serif;font-size:2.2rem;font-weight:900;
-    color:#0ff;text-shadow:0 0 22px #0ff,0 0 50px #0ff8;line-height:1.1;
-  }
+  html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monospace}
+  
+  /* scanline overlay */
+  body::after{content:'';position:fixed;inset:0;
+    background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.08) 2px,rgba(0,0,0,.08) 4px);
+    pointer-events:none;z-index:999}
 
-  #btn-replay{
-    position:absolute;bottom:22px;right:28px;pointer-events:all;
-    padding:9px 22px;border-radius:5px;border:1px solid rgba(0,170,255,.4);
-    background:rgba(0,8,28,.9);color:#88ccff;
-    font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.07em;
-    cursor:pointer;backdrop-filter:blur(8px);
-    opacity:0;pointer-events:none;transition:opacity .6s;
-  }
-  #btn-replay.show{opacity:1;pointer-events:all;}
-  #btn-replay:hover{background:rgba(0,80,180,.3);color:#fff;box-shadow:0 0 14px #0af5;}
+  #app{display:flex;height:100%;flex-direction:column}
 
-  #loading{position:fixed;inset:0;background:#000209;z-index:100;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
-    transition:opacity .8s;}
-  #loading.hide{opacity:0;pointer-events:none;}
-  #loading-ring{width:48px;height:48px;border:3px solid #0a1828;
-    border-top-color:#0af;border-radius:50%;animation:spin .8s linear infinite;}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  #loading-txt{font-family:'JetBrains Mono',monospace;font-size:.75rem;color:#4af8;letter-spacing:.1em;}
+  /* HEADER */
+  #hdr{display:flex;align-items:center;gap:14px;padding:10px 20px;
+    border-bottom:1px solid var(--border);background:#040810;flex-shrink:0}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);
+    box-shadow:0 0 8px var(--green);animation:blink 2.5s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+  #hdr h1{font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:700;
+    letter-spacing:4px;text-transform:uppercase;color:var(--text)}
+  #arch-label{margin-left:auto;font-size:10px;letter-spacing:2px;color:var(--text)}
+
+  /* BODY */
+  #body{display:flex;flex:1;overflow:hidden}
+
+  /* LEFT PANEL */
+  #left{width:380px;flex-shrink:0;border-right:1px solid var(--border);
+    padding:18px 16px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;background:var(--panel)}
+
+  .sec-lbl{font-size:9px;letter-spacing:3px;color:var(--text);text-transform:uppercase;
+    border-bottom:1px solid var(--border);padding-bottom:4px; margin-top: 10px;}
+
+  #pred-box{text-align:center;padding:12px;background:#040c14;border:1px solid var(--border);
+    border-radius:3px;position:relative;overflow:hidden}
+  #pred-box::before{content:'PREDICTED';position:absolute;top:6px;left:50%;transform:translateX(-50%);
+    font-size:8px;letter-spacing:3px;color:var(--label)}
+  #pred-digit{font-family:'Rajdhani',sans-serif;font-size:96px;font-weight:700;
+    color:var(--green);line-height:1;margin-top:14px;
+    text-shadow:0 0 30px rgba(57,255,154,.5);transition:all .3s}
+  #pred-conf{font-size:12px;color:var(--label);margin-top:4px}
+
+  #conf-list{display:flex;flex-direction:column;gap:3px; max-height: 180px; overflow-y: auto;}
+  .cr{display:flex;align-items:center;gap:8px;font-size:12px;height:18px}
+  .cn{width:22px;text-align:right;color:var(--label); font-weight:bold;}
+  .cb{flex:1;height:6px;background:var(--dim);border-radius:3px;overflow:hidden}
+  .cf{height:100%;background:linear-gradient(90deg,#0a4a2a,var(--green));
+    border-radius:2px;transition:width .25s ease;min-width:1px}
+  .cp{width:42px;text-align:right;font-size:11px;color:var(--label)}
+  .cr.active .cn{color:var(--green)}
+  .cr.active .cf{background:linear-gradient(90deg,#0a6a3a,var(--yellow))}
+  .cr.active .cp{color:var(--green)}
+
+  /* ACT BARS */
+  #act-section{display:flex;flex-direction:column;gap:6px}
+  .act-row{display:flex;flex-direction:column;gap:4px}
+  .act-row span{font-size:10px;}
+  .act-row canvas{height:14px;width:100%;image-rendering:pixelated;border-radius:2px;background:#040c14;}
+
+  #back-btn{
+    background:transparent;border:1px solid var(--border);color:var(--label);
+    padding:7px;cursor:pointer;font-family:'Share Tech Mono',monospace;font-size:10px;
+    letter-spacing:2px;text-transform:uppercase;width:100%;transition:all .2s;border-radius:2px;
+    margin-top: 10px;
+  }
+  #back-btn:hover{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 10px rgba(0,229,255,.15)}
+
+  /* RIGHT PANEL */
+  #right{flex:1;position:relative;overflow:hidden}
+  #viz-canvas{width:100%;height:100%;display:block}
+
+  /* Animation controls overlay */
+  #anim-controls{position:absolute;top:12px;left:12px;display:flex;gap:8px;z-index:10;
+    background:rgba(4,8,16,.75);border:1px solid var(--border);border-radius:6px;padding:8px 10px;
+    backdrop-filter:blur(6px)}
+  #anim-controls button{background:transparent;border:1px solid var(--border);color:var(--label);
+    padding:6px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-family:'Share Tech Mono',monospace;
+    transition:all .15s}
+  #anim-controls button:hover{color:var(--cyan);border-color:var(--cyan)}
+  #anim-controls .primary{color:var(--green);border-color:var(--green)}
+
 </style>
 </head>
 <body>
-
-<div id="loading"><div id="loading-ring"></div><div id="loading-txt">Building…</div></div>
-
-<div id="hud">
-  <div id="title">MLP · Depth Stack</div>
-  <div id="step-counter"></div>
-  <div id="layer-lbl"><div id="lname">–</div><div id="layer-sub">–</div></div>
-  <div id="dots"></div>
-  <!-- Prediction label: shown only when 3D voxel finishes scaling -->
-  <div id="pred-hud">
-    <div id="pred-hud-lbl">Prediction</div>
-    <div id="pred-char">?</div>
+<div id="app">
+  <div id="hdr">
+    <div class="dot"></div>
+    <h1>MLP Neural Visualizer</h1>
+    <span id="arch-label">784 → 512 → 256 → 47 &nbsp;|&nbsp; PyTorch</span>
   </div>
-  <button id="btn-replay">↺ Replay</button>
+  <div id="body">
+    <div id="left">
+
+      <div id="pred-box">
+        <div id="pred-digit">?</div>
+        <div id="pred-conf">Loading...</div>
+      </div>
+
+      <div class="sec-lbl">Confidence per class</div>
+      <div id="conf-list"></div>
+
+      <div class="sec-lbl">Layer activations (2D view)</div>
+      <div id="act-section">
+        <div class="act-row"><span style="font-size:10px;color:var(--label)">FC1 &nbsp;(512)</span><canvas id="act1" height="14"></canvas></div>
+        <div class="act-row"><span style="font-size:10px;color:var(--label)">FC2 &nbsp;(256)</span><canvas id="act2" height="14"></canvas></div>
+        <div class="act-row"><span style="font-size:10px;color:var(--label)">Output (47)</span><canvas id="act3" height="14"></canvas></div>
+      </div>
+
+      <button id="back-btn" onclick="window.location.href='/'">← Draw Again</button>
+
+    </div>
+
+    <div id="right">
+      <canvas id="viz-canvas"></canvas>
+      <div id="anim-controls">
+        <button id="btn-replay" class="primary">Replay</button>
+        <button id="btn-play">Pause</button>
+        <button id="btn-speed">Speed: normal</button>
+      </div>
+      <div id="layer-overlay">
+        <div class="ll"><b>INPUT</b>784 units</div>
+        <div class="ll"><b>FC 1</b>512 neurons</div>
+        <div class="ll"><b>FC 2</b>256 neurons</div>
+        <div class="ll"><b>OUTPUT</b>47 classes</div>
+      </div>
+      <div id="hint">drag · scroll · dblclick reset</div>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-'use strict';
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function normArr(a){
+  const mx=Math.max(...a,1e-9),mn=Math.min(...a);const r=mx-mn||1;
+  return a.map(v=>(v-mn)/r);
+}
 
-const API = 'http://localhost:5000';
+function hueColor(v){
+  const c=new THREE.Color();
+  const h=0.33-0.12*v;
+  const l=Math.max(0.25,0.15+0.55*v); // ensure weak values stay visible
+  c.setHSL(h,1,l);
+  return c;
+}
 
-/* ══════════════════════════════════════════════════════════
-   5×7 PIXEL FONT  (35 bits per glyph, row-major, top→bottom)
-══════════════════════════════════════════════════════════ */
-const FONT={
-  '0':[0,1,1,1,0,1,0,0,0,1,1,0,0,1,1,1,0,1,0,1,1,1,0,0,1,1,0,0,0,1,0,1,1,1,0],
-  '1':[0,0,1,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,1,1,0],
-  '2':[0,1,1,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,1,1,1,1],
-  '3':[1,1,1,1,0,0,0,0,0,1,0,0,0,0,1,0,1,1,1,0,0,0,0,0,1,0,0,0,0,1,1,1,1,1,0],
-  '4':[0,0,0,1,0,0,0,1,1,0,0,1,0,1,0,1,0,0,1,0,1,1,1,1,1,0,0,0,1,0,0,0,0,1,0],
-  '5':[1,1,1,1,1,1,0,0,0,0,1,1,1,1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
-  '6':[0,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
-  '7':[1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0],
-  '8':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
-  '9':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,1,0,0,0,0,1,0,0,0,0,1,0,1,1,1,0],
-  'A':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1],
-  'B':[1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0],
-  'C':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,1,1,1,0],
-  'D':[1,1,1,0,0,1,0,0,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,1,0,1,1,1,0,0],
-  'E':[1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,1],
-  'F':[1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0],
-  'G':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,0,1,1,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,1],
-  'H':[1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1],
-  'I':[0,1,1,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,1,1,0],
-  'J':[0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,1,0,0,1,0,1,0,0,1,0,0,1,1,0,0],
-  'K':[1,0,0,0,1,1,0,0,1,0,1,0,1,0,0,1,1,0,0,0,1,0,1,0,0,1,0,0,1,0,1,0,0,0,1],
-  'L':[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,1],
-  'M':[1,0,0,0,1,1,1,0,1,1,1,0,1,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1],
-  'N':[1,0,0,0,1,1,1,0,0,1,1,0,1,0,1,1,0,0,1,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1],
-  'O':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
-  'P':[1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0],
-  'Q':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,1,0,1,1,0,0,1,0,0,1,1,0,1],
-  'R':[1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,1,0,0,1,0,0,1,0,1,0,0,0,1],
-  'S':[0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,0,1,1,1,0,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
-  'T':[1,1,1,1,1,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0],
-  'U':[1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0],
-  'V':[1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,1,0,1,0,0,0,1,0,0],
-  'W':[1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,1,0,1,1,0,1,0,1,1,1,0,1,1,1,0,0,0,1],
-  'X':[1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1],
-  'Y':[1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0],
-  'Z':[1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,1,1,1,1],
-};
-// Fill lowercase → uppercase fallback
-'abcdefghijklmnopqrstuvwxyz'.split('').forEach(c=>{if(!FONT[c]&&FONT[c.toUpperCase()])FONT[c]=FONT[c.toUpperCase()];});
+function makeLabelSprite(text){
+  const size=128;
+  const canvas=document.createElement('canvas');
+  canvas.width=canvas.height=size;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='rgba(0,0,0,0)';
+  ctx.fillRect(0,0,size,size);
+  ctx.fillStyle='#cfe8ff';
+  ctx.font='bold 48px Rajdhani, sans-serif';
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  ctx.fillText(text,size/2,size/2+6);
+  const tex=new THREE.CanvasTexture(canvas);
+  tex.needsUpdate=true;
+  const mat=new THREE.SpriteMaterial({map:tex,transparent:true});
+  const spr=new THREE.Sprite(mat);
+  spr.scale.set(0.9,0.9,0.9);
+  return spr;
+}
 
-/* ══════════════════════════════════════════════════════════
-   LAYERS
-══════════════════════════════════════════════════════════ */
-// MLP model: Input → FC1 (512) → FC2 (256) → Output (10)
-const LAYERS=[
-  {label:'Input',  sub:'28 × 28 pixels',  imgUrl:()=>`${API}/input/input.png?t=${Date.now()}`,       col:[0.0,0.72,1.0], sw:28,sh:28, show:1, gCols:1,gRows:1},
-  {label:'FC 1',   sub:'512 neurons',     imgUrl:()=>`${API}/outputs/1_fc1.png?t=${Date.now()}`,     col:[0.88,0.0,0.72],isFC:true,fcN:48},
-  {label:'FC 2',   sub:'256 neurons',     imgUrl:()=>`${API}/outputs/2_fc2.png?t=${Date.now()}`,     col:[1.0,0.0,0.38], isFC:true,fcN:32},
-  {label:'Output', sub:'10 class scores', imgUrl:()=>`${API}/outputs/3_fc3.png?t=${Date.now()}`,     col:[1.0,0.28,0.0], isFC:true,fcN:10},
-];
+function drawActBar(canvasId,activations){
+  const cv=document.getElementById(canvasId); if(!cv)return;
+  cv.width=activations.length;cv.style.width='100%';
+  const ctx=cv.getContext('2d');
+  for(let i=0;i<activations.length;i++){
+    const v=activations[i];
+    const h=120+v*70; const l=18+v*50;
+    ctx.fillStyle=`hsl(${h},85%,${l}%)`;
+    ctx.fillRect(i,0,1,12);
+  }
+}
 
-/* ══════════════════════════════════════════════════════════
-   LAYOUT
-══════════════════════════════════════════════════════════ */
-const SCALE=5.5/28,ACTIVE_Z=0,SPAWN_Z=15;
-const PUSH_STEP=12,FC_PUSH_STEP=4.8;  // FC cluster 60% tighter
-const LERP_SPEED=6.0,PLANE_GAP=0.22;
-// Voxel lives exactly where the Output layer (step 3) sits when active
-const VOXEL_Z=ACTIVE_Z;   // z = 0
+function topIndices(arr,count){return [...arr.keys()].sort((a,b)=>arr[b]-arr[a]).slice(0,count);}
 
-function blockW(L){return L.sw?L.sw*SCALE:0.55;}
-function blockH(L){return L.sh?L.sh*SCALE:6.0;}
-
-/* ══════════════════════════════════════════════════════════
-   RENDERER
-══════════════════════════════════════════════════════════ */
-const renderer=new THREE.WebGLRenderer({antialias:true});
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-renderer.setSize(innerWidth,innerHeight);
-renderer.setClearColor(0x00020c,1);
-document.body.appendChild(renderer.domElement);
+// ─── THREE.JS SETUP ──────────────────────────────────────────────────────────
+const vc=document.getElementById('viz-canvas');
+const renderer=new THREE.WebGLRenderer({canvas:vc,antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setClearColor(0x050a11,1);
 
 const scene=new THREE.Scene();
-scene.fog=new THREE.FogExp2(0x00020c,0.012);
+scene.fog=new THREE.Fog(0x050a11,28,90);
+const camera=new THREE.PerspectiveCamera(45,1,0.1,300);
 
-const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.1,400);
+scene.add(new THREE.AmbientLight(0x0c1c24,2.3));
+const key=new THREE.PointLight(0x39ff9a,3,120);key.position.set(-6,8,20);scene.add(key);
+const rim=new THREE.PointLight(0x00d0ff,1.5,90);rim.position.set(18,-6,-10);scene.add(rim);
 
-/* Lights */
-scene.add(new THREE.AmbientLight(0x050c1a,5));
-const kL=new THREE.DirectionalLight(0xaad4ff,3.5);kL.position.set(8,14,10);scene.add(kL);
-const sL=new THREE.DirectionalLight(0x0044cc,2.5);sL.position.set(30,5,-5);scene.add(sL);
-const bL=new THREE.DirectionalLight(0x440088,1.5);bL.position.set(-10,0,-30);scene.add(bL);
-// Point light at voxel position — pumped up at hero reveal
-const voxelLight=new THREE.PointLight(0x00ffff,0,40);
-voxelLight.position.set(0,0,VOXEL_Z+4);scene.add(voxelLight);
-
-/* Tunnel rings (depth cue) */
-for(let z=0;z>=-150;z-=8){
-  const r=12+Math.abs(z)*.05,seg=64,pts=[];
-  for(let j=0;j<=seg;j++){const a=(j/seg)*Math.PI*2;pts.push(new THREE.Vector3(Math.cos(a)*r,Math.sin(a)*r,z));}
-  const alpha=Math.max(0.015,0.1-Math.abs(z)*.001);
-  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
-    new THREE.LineBasicMaterial({color:0x0a2040,transparent:true,opacity:alpha})));
+// Subtle floor grid to ground the scene
+const grid=new THREE.GridHelper(200,100,0x0c3028,0x0c3028);
+grid.material.transparent=true;grid.material.opacity=0.22;
+if(Array.isArray(grid.material)){
+  grid.material.forEach(m=>{m.transparent=true;m.opacity=0.22;});
 }
+grid.position.y=-4;
+scene.add(grid);
 
-/* Stars */
-{
-  const N=2000,geo=new THREE.BufferGeometry(),p=new Float32Array(N*3);
-  for(let i=0;i<N;i++){p[i*3]=(Math.random()-.5)*200;p[i*3+1]=(Math.random()-.5)*100;p[i*3+2]=(Math.random()-.5)*200-50;}
-  geo.setAttribute('position',new THREE.BufferAttribute(p,3));
-  scene.add(new THREE.Points(geo,new THREE.PointsMaterial({color:0x0c1e30,size:.12,transparent:true,opacity:.55})));
-}
+const glowGeo=new THREE.PlaneGeometry(160,160);
+const glowMat=new THREE.MeshBasicMaterial({color:0x071018,transparent:true,opacity:0.32,side:THREE.DoubleSide});
+const glow=new THREE.Mesh(glowGeo,glowMat);glow.rotation.x=-Math.PI/2;glow.position.y=-8;scene.add(glow);
 
-/* ══════════════════════════════════════════════════════════
-   EASING
-══════════════════════════════════════════════════════════ */
-function easeInOutCubic(x){return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;}
-function easeExpoOut(x){return x===1?1:1-Math.pow(2,-10*x);}
+const POS={inp:-15,l1:-5,l2:5,out:15}; // used on Z axis
 
-/* ══════════════════════════════════════════════════════════
-   CAMERA
-══════════════════════════════════════════════════════════ */
-// Close-up per layer [px,py,pz, lx,ly,lz]  — 4 layers for MLP
-const CAM_CLOSEUP=[
-  [15, 8, 14,   0, 0.5, -1],   // 0 Input     — wide overview, warm angle
-  [ 5, 2,  7,  -0.5, 0.2, 0],  // 1 FC1       — orbit left, medium close
-  [ 4, 2,  6,   0.5, 0.2, 0],  // 2 FC2       — orbit right, tighter
-  [ 2, 1,  4,   0,   0,   0],  // 3 Output    — fly through, extreme close
-];
-const OV_POS =new THREE.Vector3(20,10,25);
-const OV_LOOK=new THREE.Vector3(0,0,-20);
-const PB_POS =new THREE.Vector3(18,9,20);
-const PB_LOOK=new THREE.Vector3(0,0,-10);
-const HERO_POS =new THREE.Vector3(6,2.5,14);
-const HERO_LOOK=new THREE.Vector3(-0.5,0,0);
-
-const camCur ={pos:OV_POS.clone(),look:OV_LOOK.clone()};
-const camFrom={pos:OV_POS.clone(),look:OV_LOOK.clone()};
-const camTgt ={pos:OV_POS.clone(),look:OV_LOOK.clone()};
-let camT=1,camSpeed=1.6,camEase=easeInOutCubic;
-
-function moveCam(tp,tl,spd,fn){
-  camFrom.pos.copy(camCur.pos);camFrom.look.copy(camCur.look);
-  camTgt.pos.copy(tp);camTgt.look.copy(tl);
-  camT=0;camSpeed=spd||1.6;camEase=fn||easeInOutCubic;
-}
-function tickCamera(dt){
-  if(camT<1){camT=Math.min(camT+dt*camSpeed,1);const e=camEase(camT);
-    camCur.pos.lerpVectors(camFrom.pos,camTgt.pos,e);
-    camCur.look.lerpVectors(camFrom.look,camTgt.look,e);}
-  camera.position.copy(camCur.pos);camera.lookAt(camCur.look);
-}
-camera.position.copy(OV_POS);camera.lookAt(OV_LOOK);
-
-/* ══════════════════════════════════════════════════════════
-   TEXTURE LOADER
-══════════════════════════════════════════════════════════ */
-const tLoader=new THREE.TextureLoader();
-function loadTex(url){
-  return new Promise(res=>{
-    const tm=setTimeout(()=>res(null),5000);
-    tLoader.load(url,tx=>{clearTimeout(tm);tx.minFilter=tx.magFilter=THREE.LinearFilter;res(tx);},
-      undefined,()=>{clearTimeout(tm);res(null);});
-  });
-}
-
-/* ══════════════════════════════════════════════════════════
-   3D VOXEL CHARACTER
-   Lives at VOXEL_Z = 0 — same position as the Output layer.
-   Starts invisible; grows from 0.8→1.2→1.0 scale on reveal.
-══════════════════════════════════════════════════════════ */
-let voxelGroup=null;
-let voxelCurGlow=0,voxelTargetGlow=0;
-// Scale animation: 0=not started, >0 = time elapsed since start
-let voxelScaleStart=-1;
-const SCALE_DURATION=0.9;  // seconds for 0.8→1.2→1.0 arc
-let hudShown=false;        // tracks if we've already shown the HUD
-let predChar='?';
-
-function buildVoxelChar(ch){
-  if(voxelGroup){scene.remove(voxelGroup);voxelGroup=null;}
-
-  const bitmap=FONT[ch]||FONT[ch.toUpperCase()]||FONT['?']||FONT['0'];
-  const ROWS=7,COLS=5,VS=0.55,GAP=0.07,STEP=VS+GAP;
-  const offX=-(COLS-1)*STEP/2, offY=(ROWS-1)*STEP/2;
-  const col=new THREE.Color(0.0,0.9,1.0);
-
-  voxelGroup=new THREE.Group();
-  voxelGroup.position.set(0,0,VOXEL_Z);
-  voxelGroup.scale.set(0.8,0.8,0.8);   // start at 0.8x, will animate up
-
-  const baseGeo=new THREE.BoxGeometry(VS,VS,VS*0.45);
-
-  for(let r=0;r<ROWS;r++){
-    for(let c=0;c<COLS;c++){
-      if(!bitmap[r*COLS+c]) continue;
-      const mat=new THREE.MeshStandardMaterial({
-        color:col,emissive:col,emissiveIntensity:0,
-        transparent:true,opacity:0,metalness:.15,roughness:.35,
-      });
-      const mesh=new THREE.Mesh(baseGeo,mat);
-      mesh.position.set(offX+c*STEP,offY-r*STEP,0);
-
-      const edgeMat=new THREE.LineBasicMaterial({color:new THREE.Color(0.5,1.0,1.0),transparent:true,opacity:0});
-      const edge=new THREE.LineSegments(new THREE.EdgesGeometry(baseGeo),edgeMat);
-      edge.position.copy(mesh.position);
-
-      voxelGroup.add(mesh);
-      voxelGroup.add(edge);
-    }
-  }
-  scene.add(voxelGroup);
-}
-
-function tickVoxel(clockT,dt){
-  if(!voxelGroup) return;
-
-  // Smooth glow
-  voxelCurGlow+=(voxelTargetGlow-voxelCurGlow)*Math.min(dt*2.2,1);
-
-  // Scale animation: 0.8 → 1.2 → 1.0 over SCALE_DURATION seconds
-  let sc=0.8;
-  if(voxelScaleStart>=0){
-    const elapsed=clockT-voxelScaleStart;
-    const prog=Math.min(elapsed/SCALE_DURATION,1);
-    // 0→0.6: ease up from 0.8 to 1.2  |  0.6→1: ease back to 1.0
-    if(prog<0.6){
-      const t2=prog/0.6;
-      sc=0.8+(1.2-0.8)*easeExpoOut(t2);
-    } else {
-      const t2=(prog-0.6)/0.4;
-      sc=1.2+(1.0-1.2)*easeInOutCubic(t2);
-    }
-    voxelGroup.scale.set(sc,sc,sc);
-
-    // Once scale settles, show the HUD pred label (synced)
-    if(prog>=1 && !hudShown){
-      hudShown=true;
-      document.getElementById('pred-char').textContent=predChar;
-      document.getElementById('pred-hud').classList.add('show');
-    }
-  }
-
-  // Pulse after fully revealed
-  const pulse=voxelTargetGlow>0.9?(0.07+0.14*Math.sin(clockT*3.5)):0;
-  const glow=voxelCurGlow+pulse;
-
-  voxelGroup.children.forEach(ch=>{
-    if(!ch.material) return;
-    if(ch.material.isLineBasicMaterial){
-      ch.material.opacity=glow*0.75;
-    } else {
-      ch.material.opacity=glow*0.97;
-      ch.material.emissiveIntensity=glow*3.2+pulse*5;
-    }
-  });
-
-  voxelLight.intensity=voxelCurGlow*16;
-}
-
-/* ══════════════════════════════════════════════════════════
-   LAYER STATE
-══════════════════════════════════════════════════════════ */
-const groups=[],layerZ=[],targetZ=[],layerOp=[],targetOp=[];
-let curStep=-1;
-let heroMode=false;
-
-function depthOpacity(stepsBack){
-  if(stepsBack===0) return 1.0;
-  return Math.max(0.06,0.38*Math.pow(0.52,stepsBack-1));
-}
-
-/* ══════════════════════════════════════════════════════════
-   BUILD LAYER GEOMETRY
-══════════════════════════════════════════════════════════ */
-async function buildLayer(i,tex){
-  const L=LAYERS[i],col=new THREE.Color(...L.col);
+// ─── Layer grids ────────────────────────────────────────────────────────────
+function buildGrid(cols,rows,spacing,x,size){
   const grp=new THREE.Group();
-  grp.position.set(0,0,SPAWN_Z+30);grp.visible=false;
-  layerZ[i]=SPAWN_Z+30;targetZ[i]=SPAWN_Z+30;
-  layerOp[i]=0;targetOp[i]=0;
-
-  if(!L.isFC){
-    const bW=blockW(L),bH=blockH(L),n=L.show||1,total=(n-1)*PLANE_GAP;
-    grp.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(bW,bH,total+.1)),
-      new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0})));
-    for(let c2=0;c2<n;c2++){
-      const z=c2*PLANE_GAP-total/2,geo=new THREE.PlaneGeometry(bW,bH);
-      if(tex&&L.gCols){
-        const uv=geo.attributes.uv,ci=c2%L.gCols,ri=Math.floor(c2/L.gCols);
-        const uW=1/L.gCols,uH=1/(L.gRows||1),u0=ci*uW+uW*.015,u1=u0+uW*.97;
-        const v0=1-ri*uH-uH*.015,v1=v0-uH*.97;
-        uv.setXY(0,u0,v0);uv.setXY(1,u1,v0);uv.setXY(2,u0,v1);uv.setXY(3,u1,v1);uv.needsUpdate=true;
-      }
-      const mat=new THREE.MeshStandardMaterial({map:tex||null,color:tex?0xffffff:col,
-        transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,emissive:col,emissiveIntensity:0});
-      const mesh=new THREE.Mesh(geo,mat);mesh.position.z=z;
-      const edge=new THREE.LineSegments(new THREE.EdgesGeometry(geo),
-        new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0}));
-      edge.position.z=z;
-      grp.add(mesh);grp.add(edge);
-    }
-  } else {
-    // FC pillars: doubled width+depth so they look massive up close
-    const n=L.fcN,H=blockH(L),nH=(H/n)*.82;
-    for(let c2=0;c2<n;c2++){
-      const y=(c2/(n-1||1))*H-H/2;
-      const geo=new THREE.BoxGeometry(1.0,nH,0.55);  // was .48 × .20 → now 1.0 × 0.55
-      if(tex){const uv=geo.attributes.uv,u0=c2/n,u1=(c2+1)/n;
-        for(let v=0;v<uv.count;v++)uv.setX(v,v%2===0?u0:u1);uv.needsUpdate=true;}
-      const mat=new THREE.MeshStandardMaterial({color:tex?0xffffff:col,map:tex||null,
-        transparent:true,opacity:0,emissive:col,emissiveIntensity:2.0,  // bright from the start
-        metalness:.3,roughness:.3});
-      grp.add(new THREE.Mesh(geo,mat));
+  grp.position.set(0,0,x);
+  const cells=[];
+  const geo=new THREE.SphereGeometry(size,10,8);
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const mat=new THREE.MeshBasicMaterial({color:0x4a5568,transparent:true,opacity:0.28});
+      const m=new THREE.Mesh(geo,mat);
+      m.position.set((c-(cols-1)/2)*spacing,(rows/2-r)*spacing*0.95,0);
+      cells.push(m);grp.add(m);
     }
   }
-  scene.add(grp);groups.push(grp);
+  return {group:grp,cells};
 }
 
-function applyTexture(i,tex){
-  const L=LAYERS[i],grp=groups[i];if(!grp||!tex)return;
-  let pi=0;
-  grp.children.forEach(ch=>{
-    if(ch.isLineSegments||!ch.material)return;
-    if(L.isFC){const uv=ch.geometry.attributes.uv;
-      if(uv){const u0=pi/L.fcN,u1=(pi+1)/L.fcN;
-        for(let v=0;v<uv.count;v++)uv.setX(v,v%2===0?u0:u1);uv.needsUpdate=true;}
-      ch.material.map=tex;ch.material.color.set(0xffffff);ch.material.needsUpdate=true;pi++;
-    } else if(L.gCols&&pi<(L.show||1)){
-      const uv=ch.geometry.attributes.uv;
-      if(uv){const ci=pi%L.gCols,ri=Math.floor(pi/L.gCols),uW=1/L.gCols,uH=1/(L.gRows||1),
-        u0=ci*uW+uW*.015,u1=u0+uW*.97,v0=1-ri*uH-uH*.015,v1=v0-uH*.97;
-        uv.setXY(0,u0,v0);uv.setXY(1,u1,v0);uv.setXY(2,u0,v1);uv.setXY(3,u1,v1);uv.needsUpdate=true;}
-      ch.material.map=tex;ch.material.color.set(0xffffff);ch.material.needsUpdate=true;pi++;
+const layer1=buildGrid(24,22,0.3,POS.l1,0.09); // 512 ~24x22 (z)
+const layer2=buildGrid(16,16,0.35,POS.l2,0.11); // 256 (z)
+scene.add(layer1.group);scene.add(layer2.group);
+
+// Output layer: 10 nodes line (0-9)
+const fc3Grp=new THREE.Group();
+fc3Grp.position.set(0,0,POS.out);
+const fc3Nodes=[]; const fc3Labels=[];
+const outGeo=new THREE.SphereGeometry(0.35,14,10);
+for(let i=0;i<10;i++){
+  const mat=new THREE.MeshBasicMaterial({color:0x4a5568,transparent:true,opacity:0.32});
+  const m=new THREE.Mesh(outGeo,mat);
+  const x=(i-4.5)*1.0;
+  m.position.set(x,0,0);
+  fc3Nodes.push(m);fc3Grp.add(m);
+
+  const lbl=makeLabelSprite(i.toString());
+  lbl.position.set(x,-0.8,0.05);
+  lbl.scale.set(0.5,0.5,0.5);
+  fc3Labels.push(lbl);
+  fc3Grp.add(lbl);
+}
+scene.add(fc3Grp);
+
+// ─── Output panel (pixel map) ───────────────────────────────────────────────
+const panelGroup=new THREE.Group();
+panelGroup.position.set(0,0,POS.inp);
+const panelBG=new THREE.Mesh(
+  new THREE.PlaneGeometry(10,10),
+  new THREE.MeshBasicMaterial({color:0x071018,transparent:true,opacity:0.3,side:THREE.DoubleSide})
+);
+panelGroup.add(panelBG);
+
+const frame=new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.PlaneGeometry(10,10)),
+  new THREE.LineBasicMaterial({color:0x1c4f35,transparent:true,opacity:0.5})
+);
+panelGroup.add(frame);
+
+const pxCells=[];
+const pxGeo=new THREE.PlaneGeometry(0.17,0.17);
+for(let r=0;r<28;r++)for(let c=0;c<28;c++){
+  const mat=new THREE.MeshBasicMaterial({color:0x4a5568,side:THREE.DoubleSide,transparent:true,opacity:0.1});
+  const m=new THREE.Mesh(pxGeo,mat);
+  m.position.set((c-13.5)*0.18,(13.5-r)*0.18,0.01);
+  panelGroup.add(m);pxCells.push(m);
+}
+scene.add(panelGroup);
+
+// ─── Connections ────────────────────────────────────────────────────────────
+const tmp1=new THREE.Vector3();
+const tmp2=new THREE.Vector3();
+function wp(obj,target){return obj.getWorldPosition(target||new THREE.Vector3());}
+
+let segments={in_l1:null,l1_l2:null,l2_out:null};
+
+function disposeSegment(seg){
+  if(!seg||!seg.line) return;
+  scene.remove(seg.line);
+  seg.line.geometry.dispose();
+  seg.line.material.dispose();
+}
+
+function makeLines(edges){
+  const pos=[],start=[],end=[],col=[],aT=[];
+  edges.forEach(e=>{
+    const cool=new THREE.Color(0x2c3542);
+    const t=Math.max(0.18,Math.min(1,e.intensity));
+    const hot=hueColor(Math.max(0.05,Math.min(1,e.intensity)));
+    const c=cool.clone().lerp(hot,Math.max(0.55,t)); // bias toward brighter hues
+    pos.push(e.p1.x,e.p1.y,e.p1.z,e.p2.x,e.p2.y,e.p2.z);
+    start.push(e.p1.x,e.p1.y,e.p1.z,e.p1.x,e.p1.y,e.p1.z);
+    end.push(e.p2.x,e.p2.y,e.p2.z,e.p2.x,e.p2.y,e.p2.z);
+    aT.push(0,1);
+    col.push(c.r,c.g,c.b,c.r,c.g,c.b);
+  });
+
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  geo.setAttribute('start',new THREE.Float32BufferAttribute(start,3));
+  geo.setAttribute('end',new THREE.Float32BufferAttribute(end,3));
+  geo.setAttribute('aT',new THREE.Float32BufferAttribute(aT,1));
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  geo.computeBoundingSphere();
+
+  const uProg={value:0};
+  const mat=new THREE.LineBasicMaterial({
+    vertexColors:true,
+    transparent:true,
+    opacity:0.45,
+    blending:THREE.AdditiveBlending,
+    depthWrite:false
+  });
+  mat.onBeforeCompile=shader=>{
+    shader.uniforms.uProg=uProg;
+    shader.vertexShader=shader.vertexShader
+      .replace('#include <common>','#include <common>\nattribute vec3 start;\nattribute vec3 end;\nattribute float aT;\nuniform float uProg;')
+      .replace('#include <begin_vertex>','vec3 transformed = mix(start,end,aT*uProg);');
+  };
+
+  const line=new THREE.LineSegments(geo,mat);
+  line.visible=false;
+  scene.add(line);
+  return {line,uProg,animating:false,elapsed:0,duration:0,onDone:null};
+}
+
+function rebuildSegments(pxn,h1n,h2n,outn){
+  disposeSegment(segments.in_l1);disposeSegment(segments.l1_l2);disposeSegment(segments.l2_out);
+
+  const edges1=[],edges2=[],edges3=[];
+  const topPx=topIndices(pxn,150);
+  const topL1=topIndices(h1n,140);
+  const topL2=topIndices(h2n,120);
+  const topOut=topIndices(outn,10);
+
+  // input pixels -> layer1 (sampled)
+  topPx.forEach((pi,idx)=>{
+    const p1=wp(pxCells[pi],tmp1.clone());
+    const li=topL1[idx % topL1.length];
+    const p2=wp(layer1.cells[li],tmp2.clone());
+    edges1.push({p1,p2,intensity:(pxn[pi]+h1n[li])*0.6});
+  });
+
+  // layer1 -> layer2
+  topL1.forEach((i,idx)=>{
+    const p1=wp(layer1.cells[i],tmp1.clone());
+    for(let k=0;k<3;k++){
+      const j=topL2[(idx*3+k)%topL2.length];
+      const p2=wp(layer2.cells[j],tmp2.clone());
+      edges2.push({p1,p2,intensity:(h1n[i]+h2n[j])*0.5});
+    }
+  });
+
+  // layer2 -> output (10 nodes)
+  topL2.forEach((i,idx)=>{
+    const p1=wp(layer2.cells[i],tmp1.clone());
+    const j=topOut[idx % topOut.length];
+    const p2=wp(fc3Nodes[j],tmp2.clone());
+    edges3.push({p1,p2,intensity:(h2n[i]+outn[j])*0.5});
+  });
+
+  segments.in_l1 = makeLines(edges1);
+  segments.l1_l2 = makeLines(edges2);
+  segments.l2_out = makeLines(edges3);
+}
+
+// ─── Animation state ────────────────────────────────────────────────────────
+const speedOptions=[{name:'slow',delay:1200},{name:'normal',delay:750},{name:'fast',delay:350}];
+let speedIdx=1;
+let animStep=0; let animTimer=null; let animPlaying=true;
+let lastAct={px:[],h1n:[],h2n:[],outn:[],pred:'?',label:0,probs:[]};
+
+const BASE_LINE_MS=420;
+function lineDuration(){ return Math.max(240,speedOptions[speedIdx].delay*0.65||BASE_LINE_MS); }
+
+function resetLineAnimations(){
+  Object.values(segments).forEach(seg=>{
+    if(!seg) return;
+    seg.animating=false; seg.elapsed=0; seg.duration=0; seg.uProg.value=0;
+    seg.line.visible=false; seg.onDone=null;
+  });
+}
+
+function startLineAnimation(name,onDone){
+  const seg=segments[name];
+  if(!seg){ if(onDone) onDone(); return; }
+  seg.animating=true; seg.elapsed=0; seg.duration=lineDuration();
+  seg.uProg.value=0; seg.line.visible=true; seg.onDone=onDone||null;
+}
+
+function tickLineAnimations(dt){
+  Object.values(segments).forEach(seg=>{
+    if(!seg||!seg.animating) return;
+    seg.elapsed+=dt;
+    const t=Math.min(seg.elapsed/(seg.duration||1),1);
+    seg.uProg.value=t;
+    if(t>=1){
+      seg.animating=false;
+      const cb=seg.onDone; seg.onDone=null;
+      if(cb) cb();
     }
   });
 }
 
-/* ══════════════════════════════════════════════════════════
-   PARTICLES
-══════════════════════════════════════════════════════════ */
-const NF=240,fGeo=new THREE.BufferGeometry(),fPos=new Float32Array(NF*3);
-fGeo.setAttribute('position',new THREE.BufferAttribute(fPos,3));
-scene.add(new THREE.Points(fGeo,
-  new THREE.PointsMaterial({color:0x00eeff,size:.2,transparent:true,opacity:.9,depthWrite:false})));
-const fSt=Array.from({length:NF},()=>({on:false,t:0,spd:.02,fromZ:0,toZ:0,angle:0,radius:0}));
+const playBtn=document.getElementById('btn-play');
+const replayBtn=document.getElementById('btn-replay');
+const speedBtn=document.getElementById('btn-speed');
 
-function spawnFlow(fromIdx,toZ,count=32){
-  const fromZ=fromIdx>=0&&groups[fromIdx]?groups[fromIdx].position.z:-PUSH_STEP;
-  let s=0;
-  for(let i=0;i<NF&&s<count;i++){
-    if(!fSt[i].on){
-      fSt[i]={on:true,t:Math.random()*.12,spd:.016+Math.random()*.022,
-        fromZ,toZ:toZ!=null?toZ:ACTIVE_Z,angle:Math.random()*Math.PI*2,radius:Math.random()*2.5};
-      s++;
-    }
-  }
-}
-function tickFlow(){
-  for(let i=0;i<NF;i++){
-    const f=fSt[i];
-    if(!f.on){fPos[i*3]=fPos[i*3+1]=fPos[i*3+2]=1e9;continue;}
-    f.t+=f.spd;if(f.t>=1){f.on=false;continue;}
-    const e=f.t*f.t*(3-2*f.t),r=f.radius*(1-e);
-    fPos[i*3]=Math.cos(f.angle)*r;fPos[i*3+1]=Math.sin(f.angle)*r;
-    fPos[i*3+2]=f.fromZ+(f.toZ-f.fromZ)*e;
-  }
-  fGeo.attributes.position.needsUpdate=true;
+function updateControls(){
+  playBtn.textContent=animPlaying?'Pause':'Play';
+  speedBtn.textContent=`Speed: ${speedOptions[speedIdx].name}`;
 }
 
-/* ══════════════════════════════════════════════════════════
-   HUD
-══════════════════════════════════════════════════════════ */
-function buildDots(){
-  const w=document.getElementById('dots');
-  LAYERS.forEach((_,i)=>{const d=document.createElement('div');d.className='dot';d.id=`d${i}`;w.appendChild(d);});
-}
-function setDot(i){
-  LAYERS.forEach((_,j)=>{document.getElementById(`d${j}`).className='dot'+(j===i?' active':j<i?' done':'');});
-}
+function clearTimer(){ if(animTimer){clearTimeout(animTimer);animTimer=null;} }
 
-/* ══════════════════════════════════════════════════════════
-   SHOW LAYER
-══════════════════════════════════════════════════════════ */
-function showLayer(step){
-  curStep=step;
-  const grp=groups[step];
-  grp.position.z=SPAWN_Z;layerZ[step]=SPAWN_Z;
-  targetZ[step]=ACTIVE_Z;targetOp[step]=1.0;
-  grp.visible=true;
-
-    for(let j=0;j<step;j++){
-      // All MLP layers are FC — use consistent tight FC spacing throughout
-      const stepsBack=step-j;
-      targetZ[j]=ACTIVE_Z - stepsBack*FC_PUSH_STEP;
-      targetOp[j]=depthOpacity(stepsBack);
-    }
-
-  const kf=CAM_CLOSEUP[step],isFC=!!LAYERS[step].isFC;
-  moveCam(new THREE.Vector3(kf[0],kf[1],kf[2]),new THREE.Vector3(kf[3],kf[4],kf[5]),
-    isFC?2.4:1.5,isFC?easeExpoOut:easeInOutCubic);
-
-  spawnFlow(step-1,ACTIVE_Z,30);
-
-  const L=LAYERS[step];
-  document.getElementById('lname').textContent=L.label;
-  document.getElementById('layer-sub').textContent=L.sub;
-  document.getElementById('layer-lbl').style.opacity='1';
-  document.getElementById('step-counter').textContent=`Step ${step+1} / ${LAYERS.length}`;
-  setDot(step);
+function dimAll(){
+  layer1.cells.forEach(m=>{m.material.color.set(0x4a5568);m.material.opacity=0.28;});
+  layer2.cells.forEach(m=>{m.material.color.set(0x4a5568);m.material.opacity=0.28;});
+  fc3Nodes.forEach(m=>{m.material.color.set(0x4a5568);m.material.opacity=0.32;m.scale.setScalar(1);});
+  pxCells.forEach(m=>{m.material.color.set(0x4a5568);m.material.opacity=0.1;});
+  resetLineAnimations();
+  panelBG.material.opacity=0.25; frame.material.opacity=0.35;
 }
 
-/* ══════════════════════════════════════════════════════════
-   HERO REVEAL
-   Timeline (all from when triggerHeroReveal() is called):
-     0ms   – heroMode on; all layers start fading to 5%
-            – camera flies THROUGH Output layer → z=5
-     500ms – Output layer hidden; voxel scale animation begins
-            – camera glides back to hero shot
-            – voxel starts glowing (glow target = 1.0)
-     ~1400ms – scale animation ends → HUD pred-char appears (synced)
-     2500ms – replay button
-══════════════════════════════════════════════════════════ */
-function triggerHeroReveal(){
-  heroMode=true;
-
-  // 0ms: Fast camera fly-through the Output layer, stopping just past it
-  const flyPastPos =new THREE.Vector3(3,1,6);
-  const flyPastLook=new THREE.Vector3(0,0,0);
-  moveCam(flyPastPos,flyPastLook,1.8,easeExpoOut);
-
-  // 500ms: Hide Output layer, start voxel reveal + hero camera settle
-  setTimeout(()=>{
-    // Swap: hide Output layer group, voxel becomes the focal point
-    if(groups[LAYERS.length-1]) groups[LAYERS.length-1].visible=false;
-
-    // Start voxel glow + scale animation
-    voxelTargetGlow=1.0;
-    voxelScaleStart=performance.now()/1000;
-
-    // Burst particles converging on the voxel position
-    spawnFlow(LAYERS.length-2,VOXEL_Z,70);
-
-    // Hero shot: right of centre, angled at voxel
-    moveCam(HERO_POS,HERO_LOOK,1.0,easeExpoOut);
-  },500);
-
-  // 2500ms: Replay button
-  setTimeout(()=>{
-    document.getElementById('btn-replay').classList.add('show');
-  },2500);
-}
-
-/* ══════════════════════════════════════════════════════════
-   SEQUENCE
-══════════════════════════════════════════════════════════ */
-const HOLD_TIME=1100,PULL_TIME=500;
-let seqTimer=0,nextStep=0,seqActive=false,seqPhase='hold';
-
-function startSequence(){seqActive=true;seqTimer=0;nextStep=0;seqPhase='hold';showLayer(0);}
-
-function advanceSeq(dt){
-  if(!seqActive)return;
-  seqTimer+=dt*1000;
-  if(seqPhase==='hold'){
-    if(seqTimer>=HOLD_TIME){
-      seqTimer=0;
-      if(nextStep<LAYERS.length-1){seqPhase='pullback';moveCam(PB_POS,PB_LOOK,2.4);}
-      else{seqActive=false;triggerHeroReveal();}
-    }
-  } else if(seqPhase==='pullback'){
-    if(seqTimer>=PULL_TIME){seqTimer=0;seqPhase='hold';nextStep++;showLayer(nextStep);}
+function lightInput(){
+  const px=lastAct.px;
+  for(let i=0;i<pxCells.length;i++){
+    const v=px[i]||0; const c=hueColor(v);
+    pxCells[i].material.color.copy(c);
+    pxCells[i].material.opacity=0.2+0.8*v;
   }
 }
 
-/* ══════════════════════════════════════════════════════════
-   RENDER LOOP
-══════════════════════════════════════════════════════════ */
-let lastT=performance.now();
+function lightLayer(cells,values){
+  const n=values.length;
+  for(let i=0;i<cells.length;i++){
+    const v=values[i%n];
+    cells[i].material.color.copy(hueColor(v));
+    cells[i].material.opacity=0.35+0.55*v;
+  }
+}
 
-function loop(){
-  requestAnimationFrame(loop);
-  const now=performance.now(),dt=Math.min((now-lastT)/1000,.05);lastT=now;
-  const clockT=now/1000;
+function lightOutput(){
+  const out=lastAct.outn;
+  const hiFromLabel=(lastAct.label>=0 && lastAct.label<10)?lastAct.label:-1;
+  let hiIdx=0,hiVal=-Infinity;
+  for(let i=0;i<out.length;i++){ if(out[i]>hiVal){hiVal=out[i];hiIdx=i;} }
+  const target= hiFromLabel>=0 ? hiFromLabel : hiIdx;
+  const bright=new THREE.Color(0xd8ff4d);
+  for(let i=0;i<fc3Nodes.length;i++){
+    const v=out[i]||0;
+    const mat=fc3Nodes[i].material;
+    if(i===target){
+      mat.color.copy(bright);
+      mat.opacity=0.95;
+      fc3Labels[i].material.opacity=0.95;
+    }else{
+      mat.color.copy(hueColor(v*0.6));
+      mat.opacity=0.25+0.4*v;
+      fc3Labels[i].material.opacity=0.6;
+    }
+  }
+}
 
-  const lf=Math.min(LERP_SPEED*dt,1.0);
-  groups.forEach((grp,i)=>{
-    if(!grp.visible)return;
-    layerZ[i]+=(targetZ[i]-layerZ[i])*lf;grp.position.z=layerZ[i];
+function showPanel(){
+  panelBG.material.opacity=0.9; frame.material.opacity=0.6;
+}
 
-    // Hero mode → fade all layers to 5%
-    const tOp=heroMode?Math.min(targetOp[i]*.05,0.05):targetOp[i];
-    layerOp[i]+=(tOp-layerOp[i])*lf;
-    const op=layerOp[i],isActive=i===curStep&&!heroMode,stepsBack=curStep-i;
-    const glowBase=isActive?(0.5+0.4*Math.sin(clockT*4.5)):0;
-    const glow=glowBase*Math.max(0,1-stepsBack*.4);
-    grp.position.y=isActive?Math.sin(clockT*3)*.06:0;
+function runStep(){
+  clearTimer();
+  const hold=speedOptions[speedIdx].delay;
+  switch(animStep){
+    case 0:
+      lightInput();
+      if(animPlaying) animTimer=setTimeout(()=>{animStep++; runStep();}, hold);
+      break;
+    case 1:
+      startLineAnimation('in_l1',()=>{
+        lightLayer(layer1.cells,lastAct.h1n);
+        if(animPlaying) animTimer=setTimeout(()=>{animStep++; runStep();}, hold);
+      });
+      break;
+    case 2:
+      startLineAnimation('l1_l2',()=>{
+        lightLayer(layer2.cells,lastAct.h2n);
+        if(animPlaying) animTimer=setTimeout(()=>{animStep++; runStep();}, hold);
+      });
+      break;
+    case 3:
+      startLineAnimation('l2_out',()=>{
+        lightOutput(); showPanel();
+      });
+      break;
+    default: break;
+  }
+  updateControls();
+}
 
-    grp.children.forEach((ch,ci)=>{
-      if(!ch.material)return;
-      const isNew=isActive&&layerZ[i]>ACTIVE_Z-1.0;
-      const sp=isNew?Math.min(Math.max((1-(layerZ[i]-ACTIVE_Z)/(SPAWN_Z-ACTIVE_Z))*1.6-ci*.025,0),1):1;
-      const se=sp*sp*(3-2*sp);
-      const L=LAYERS[i];
-      const baseOp=ch.material.isLineBasicMaterial?.55:(L.isFC?.92:(.5+(ci/Math.max(grp.children.length-1,1))*.38));
-      ch.material.opacity=se*baseOp*op;
-      if(ch.material.emissive){
-        const isFC=LAYERS[i].isFC;
-        const baseEI = isFC ? 2.0 : 0.05;      // FC pillars always glow bright
-        const activeBoost = isActive ? glow : 0;
-        ch.material.emissiveIntensity=activeBoost+baseEI*(isActive?1:Math.max(.15,op));
-      }
-    });
+function startAnimation(restart=true){
+  clearTimer();
+  if(restart){animStep=0; dimAll(); runStep();}
+  else {
+    if(!animPlaying){animPlaying=true; runStep();}
+  }
+}
+
+playBtn.addEventListener('click',()=>{
+  animPlaying=!animPlaying;
+  if(animPlaying) runStep(); else clearTimer();
+  updateControls();
+});
+
+replayBtn.addEventListener('click',()=>{animPlaying=true; startAnimation(true);});
+
+speedBtn.addEventListener('click',()=>{
+  speedIdx=(speedIdx+1)%speedOptions.length;
+  updateControls();
+});
+
+// ─── Data ingest ────────────────────────────────────────────────────────────
+function applyData(stored){
+  const px=stored.raw_pixels||new Float32Array(784).fill(0);
+  const h1=stored.raw_h1||new Float32Array(512).fill(0);
+  const h2=stored.raw_h2||new Float32Array(256).fill(0);
+  const outFull=stored.raw_h3||new Float32Array(47).fill(0);
+  const probs=stored.probabilities||new Float32Array(47).fill(0);
+  const predChar=stored.prediction||'?';
+  const labelIndex=stored.label_index||0;
+
+  // use first 10 outputs for digits 0-9
+  const out10=Array.from(outFull).slice(0,10);
+
+  const h1n=normArr(h1); const h2n=normArr(h2); const outn=normArr(out10);
+  const pxn=normArr(px);
+
+  lastAct={px:pxn,h1n,h2n,outn,pred:predChar,label:labelIndex,probs};
+
+  rebuildSegments(pxn,h1n,h2n,outn);
+  dimAll();
+  animPlaying=true; animStep=0; runStep();
+
+  document.getElementById('pred-digit').textContent=predChar;
+  document.getElementById('pred-conf').textContent=((probs[labelIndex]||0)*100).toFixed(1)+'% confidence';
+
+  const confList=document.getElementById('conf-list');
+  confList.innerHTML='';
+  let sortedProbs=[...probs].map((p,i)=>({p,i})).sort((a,b)=>b.p-a.p);
+  if(sortedProbs.length===0){for(let i=0;i<47;i++)sortedProbs.push({p:i===0?1:0,i});}
+
+  sortedProbs.forEach(item=>{
+    const i=item.i;const row=document.createElement('div');row.className='cr';
+    let labelDisplay=(i<10?i:(i<36?String.fromCharCode(i-10+65):['a','b','d','e','f','g','h','n','q','r','t'][i-36]||'?'));
+    if(i===labelIndex) labelDisplay=predChar;
+    row.innerHTML=`<span class="cn">${labelDisplay}</span><div class="cb"><div class="cf" id="cf${i}" style="width:10%"></div></div><span class="cp" id="cp${i}">10%</span>`;
+    confList.appendChild(row);
+    const fill=document.getElementById('cf'+i);
+    const pctEl=document.getElementById('cp'+i);
+    const pct=(item.p*100);
+    if(fill) fill.style.width=Math.max(pct,0.5).toFixed(1)+'%';
+    if(pctEl) pctEl.textContent=pct.toFixed(0)+'%';
+    if(i===labelIndex) row.classList.add('active');
   });
 
-  advanceSeq(dt);
-  tickFlow();
-  tickVoxel(clockT,dt);
-  tickCamera(dt);
+  drawActBar('act1',h1n);
+  drawActBar('act2',h2n);
+  drawActBar('act3',outn);
+}
+
+function loadAndApplyData(){
+  let stored=null;
+  try{const raw=localStorage.getItem('mlp_last_result'); if(raw) stored=JSON.parse(raw);}catch(e){}
+  if(stored) applyData(stored);
+}
+
+window.addEventListener('storage',e=>{if(e.key==='mlp_last_result')loadAndApplyData();});
+loadAndApplyData();
+
+// ─── Camera orbit ───────────────────────────────────────────────────────────
+let theta=0.12,phi=0.06,radius=42,drag=false,autoRot=true,prevM={x:0,y:0};
+vc.addEventListener('mousedown',e=>{drag=true;autoRot=false;prevM={x:e.clientX,y:e.clientY};});
+vc.addEventListener('mousemove',e=>{
+  if(!drag)return;
+  theta-=(e.clientX-prevM.x)*0.005;
+  phi=Math.max(-0.55,Math.min(0.55,phi+(e.clientY-prevM.y)*0.005));
+  prevM={x:e.clientX,y:e.clientY};
+});
+vc.addEventListener('mouseup',()=>{drag=false;});
+vc.addEventListener('mouseleave',()=>{drag=false;});
+vc.addEventListener('wheel',e=>{radius=Math.max(16,Math.min(70,radius+e.deltaY*0.035));});
+vc.addEventListener('dblclick',()=>{autoRot=true;theta=0.12;phi=0.14;radius=38;});
+
+function resize(){
+  const rp=document.getElementById('right');
+  renderer.setSize(rp.clientWidth,rp.clientHeight);
+  camera.aspect=rp.clientWidth/rp.clientHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize',resize);resize();
+
+let t=0,lastFrame=performance.now();
+function animate(){
+  requestAnimationFrame(animate);
+  const now=performance.now();
+  const dt=Math.min(now-lastFrame,120); // ms
+  lastFrame=now;
+
+  if(animPlaying) tickLineAnimations(dt);
+
+  t+=0.01;
+  if(autoRot) theta+=0.0022;
+  camera.position.set(
+    Math.sin(theta)*Math.cos(phi)*radius,
+    Math.sin(phi)*radius+2,
+    Math.cos(theta)*Math.cos(phi)*radius
+  );
+  camera.lookAt(0,0,0);
+
   renderer.render(scene,camera);
 }
 
-/* ══════════════════════════════════════════════════════════
-   INIT
-══════════════════════════════════════════════════════════ */
-async function init(){
-  buildDots();
-  predChar=new URLSearchParams(location.search).get('pred')||'?';
-  // Build the voxel char at z=0 (Output layer position), invisible initially
-  buildVoxelChar(predChar);
-
-  for(let i=0;i<LAYERS.length;i++) await buildLayer(i,null);
-
-  document.getElementById('loading').classList.add('hide');
-  setTimeout(()=>document.getElementById('loading').style.display='none',700);
-  loop();
-  setTimeout(startSequence,500);
-
-  for(let i=0;i<LAYERS.length;i++)
-    loadTex(LAYERS[i].imgUrl()).then(tex=>{if(tex)applyTexture(i,tex);});
-}
-
-document.getElementById('btn-replay').onclick=()=>location.reload();
-window.addEventListener('resize',()=>{
-  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth,innerHeight);
-});
-init();
+animate();
 </script>
 </body>
 </html>
