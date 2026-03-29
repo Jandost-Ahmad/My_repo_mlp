@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>CNN Classifier</title>
+  <title>MLP Classifier</title>
   <style>
     /* ── reset & tokens ──────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -272,19 +272,12 @@
 <body>
 
   <header>
-    <h1>CNN Classifier</h1>
-    <p>Draw a character — the neural network will predict it.</p>
+    <h1>MLP Classifier</h1>
+    <p>Draw a digit — the neural network will predict it.</p>
   </header>
 
   <!-- ── main card ───────────────────────────────────────────────── -->
   <div class="card">
-
-    <!-- model buttons -->
-    <div class="model-row">
-      <button class="model-btn" data-model="MINIST-CNN">MNIST-CNN</button>
-      <button class="model-btn" data-model="EMNIST-letters-CNN">EMNIST letters</button>
-      <button class="model-btn active" data-model="EMNIST-balanced-CNN">EMNIST balanced</button>
-    </div>
 
     <!-- two columns -->
     <div class="cols">
@@ -322,7 +315,7 @@
 
     <!-- 3D teaser -->
     <div class="viz-teaser" style="cursor:pointer" onclick="openViz()">
-      🧊 <span>3D CNN Visualisation</span> — Click to open<br>
+      🧊 <span>3D MLP Visualisation</span> — Click to open<br>
     </div>
 
   </div>
@@ -338,10 +331,6 @@
   }
 
   const API_BASE = "http://localhost:5000";
-
-  /* ══════════════════════════════════════════════════════════════════
-     CANVAS SETUP  (scales to CSS size, retina-friendly)
-  ══════════════════════════════════════════════════════════════════ */
   const canvasEl = document.getElementById("drawCanvas");
   const ctx      = canvasEl.getContext("2d");
 
@@ -350,13 +339,17 @@
     const dpr     = window.devicePixelRatio || 1;
     canvasEl.width  = cssSize * dpr;
     canvasEl.height = cssSize * dpr;
+    ctx.setTransform(1,0,0,1,0,0); // avoid compounding scale on resize
     ctx.scale(dpr, dpr);
     clearCanvas();
   }
 
   function clearCanvas() {
+    ctx.save();
+    ctx.setTransform(1,0,0,1,0,0);
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvasEl.width, canvasEl.height);
+    ctx.restore();
   }
 
   window.addEventListener("resize", resizeCanvas);
@@ -365,7 +358,7 @@
   /* ── drawing state ─────────────────────────────────────────────── */
   let drawing    = false;
   let lastX = 0, lastY = 0;
-  const STROKE_W = 20;  // thick so it matches the CNN's training data scale
+  const STROKE_W = 20;  // thick so it matches the MLP's training data scale
 
   function getPos(e) {
     const rect = canvasEl.getBoundingClientRect();
@@ -424,18 +417,6 @@
   });
 
   /* ══════════════════════════════════════════════════════════════════
-     MODEL SELECTION
-  ══════════════════════════════════════════════════════════════════ */
-  let selectedModel = "EMNIST-balanced-CNN";
-  document.querySelectorAll(".model-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".model-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      selectedModel = btn.dataset.model;
-    });
-  });
-
-  /* ══════════════════════════════════════════════════════════════════
      PREDICT
   ══════════════════════════════════════════════════════════════════ */
   let outputImages = [];
@@ -462,7 +443,7 @@
       const res  = await fetch(`${API_BASE}/predict`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ image: b64, model: selectedModel }),
+        body:    JSON.stringify({ image: b64 }),
       });
 
       const data = await res.json();
@@ -473,14 +454,27 @@
 
       // show prediction
       predChar.textContent  = data.prediction;
-      statusMsg.textContent = `Index: ${data.label_index}  ·  Model: ${selectedModel}`;
+      statusMsg.textContent = `Index: ${data.label_index}`;
 
       // render layer tabs
       outputImages = data.outputs || [];
       renderTabs(outputImages);
 
+      // store result for the viz page to read
+      localStorage.setItem('mlp_last_result', JSON.stringify({
+        prediction:  data.prediction,
+        label_index: data.label_index,
+        probabilities: data.probabilities || [],
+        outputs:     data.outputs || [],
+        raw_pixels:  data.raw_pixels || [],
+        raw_h1:      data.raw_h1 || [],
+        raw_h2:      data.raw_h2 || [],
+        raw_h3:      data.raw_h3 || [],
+        ts:          Date.now(),
+      }));
+
       // auto-open 3D viz with prediction char
-      setTimeout(() => window.open(`/viz?pred=${encodeURIComponent(data.prediction)}`, 'cnn_viz'), 500);
+      setTimeout(() => window.open(`/viz?pred=${encodeURIComponent(data.prediction)}`, 'mlp_viz'), 500);
 
     } catch (err) {
       predChar.textContent  = "✕";

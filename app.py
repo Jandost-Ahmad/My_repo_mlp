@@ -1,4 +1,3 @@
-
 """
 app.py  –  Flask backend for the CNN drawing classifier
 Drop this file into the root of your project (next to myCnn3.py, run.py, etc.)
@@ -57,6 +56,11 @@ model.eval()
 
 def _build_emnist_mapping():  #Die Funktion habe total verändert nach Herr Schaefer
     path = r"data/EMNIST/raw/emnist-balanced-mapping.txt"
+    if not os.path.exists(path):
+        # Fallback keeps the app running even if the EMNIST raw mapping file is absent.
+        print(f"Warning: mapping file not found at '{path}'. Using index labels instead.")
+        return {i: str(i) for i in range(47)}
+
     mapping = {}
     with open(path) as f:
         for line in f:
@@ -161,6 +165,9 @@ def predict():
 
         char = mapping.get(pred, "?")
 
+        # compute per-class probabilities
+        probs = torch.nn.functional.softmax(output, dim=1).squeeze().tolist()
+
         # save activation visualisations
         """
         label_map = [
@@ -181,7 +188,12 @@ def predict():
         return jsonify({
             "prediction": char,
             "label_index": pred,
+            "probabilities": probs,
             "outputs": list_output_images(),
+            "raw_pixels": tensor.squeeze().tolist(),
+            "raw_h1": activations.get("fc1").squeeze().tolist() if "fc1" in activations else [],
+            "raw_h2": activations.get("fc2").squeeze().tolist() if "fc2" in activations else [],
+            "raw_h3": output.squeeze().tolist()
         })
 
     except Exception as e:
