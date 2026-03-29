@@ -348,10 +348,8 @@
     window.open(url, '_blank');
   }
 
-  const API_BASE = "http://192.168.0.84:5000";
-  // ── PASTE YOUR FIREBASE URL HERE ──────────────────────────────────────────
+  const API_BASE    = "http://192.168.0.84:5000";
   const FIREBASE_URL = "https://console.firebase.google.com/u/0/project/mlp-mm/database/mlp-mm-default-rtdb/data/~2F";
-  // ──────────────────────────────────────────────────────────────────────────
   const canvasEl = document.getElementById("drawCanvas");
   const ctx      = canvasEl.getContext("2d");
 
@@ -494,7 +492,7 @@
         ts:          Date.now(),
       }));
 
-      // ── push to Firebase so the laptop viz reacts instantly ───────────────
+      // ── send to Firebase so laptop viz reacts ─────────────────────────────
       fetch(`${FIREBASE_URL}prediction.json`, {
         method:  "PUT",
         headers: { "Content-Type": "application/json" },
@@ -508,8 +506,8 @@
           raw_h3:        data.raw_h3        || [],
           ts:            Date.now(),
         }),
-      }).catch(()=>{});   // silent — localStorage still works as fallback
-      // ──────────────────────────────────────────────────────────────────────
+      }).catch(()=>{});
+      // ─────────────────────────────────────────────────────────────────────
 
     } catch (err) {
       predChar.textContent  = "✕";
